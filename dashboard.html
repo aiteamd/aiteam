@@ -1,0 +1,505 @@
+<script>
+
+    /**
+     * 대시보드 업데이트 - 최적화 버전
+     */
+     function updateDashboard() {
+      UI.showLoading();
+      
+      try {
+        const productData = AppState.get('productData');
+        const headers = AppState.get('headers');
+        
+        if (!productData || productData.length === 0) {
+          UI.showAlert('알림', '표시할 데이터가 없습니다.', 'info');
+          UI.hideLoading();
+          return;
+        }
+        
+        // 필드 인덱스 (캐싱)
+        const activeIdx = headers.indexOf('운영여부');
+        const brandIdx = headers.indexOf('브랜드');
+        const manufacturerIdx = headers.indexOf('제조사');
+        const releaseDateIdx = headers.indexOf('출시연월');
+        const countryIdx = headers.indexOf('국가');
+        
+        // 통계 데이터 계산 (한 번의 순회로 최적화)
+        const stats = {
+          total: productData.length,
+          normal: 0,   // 정상운영
+          renewal: 0,  // 리뉴얼
+          discontinued: 0, // 단종
+          holding: 0,  // 홀딩
+          thisMonth: 0,
+          thisMonthPercentage: 0,
+          brandStatus: {},
+          manufacturers: {},
+          countries: {}
+        };
+        
+        // 현재 날짜 정보
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const currentMonth = now.getMonth() + 1;
+        const previousMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+        const previousMonthYear = currentMonth === 1 ? currentYear - 1 : currentYear;
+        
+        // 전월 제품 수 (비교용)
+        let previousMonthCount = 0;
+        
+        // 한 번의 순회로 모든 통계 계산
+        productData.forEach(row => {
+          // 운영 상태 통계
+          const status = row[activeIdx] || '';
+          if (status === '정상운영') {
+            stats.normal++;
+          } else if (status === '리뉴얼') {
+            stats.renewal++;
+          } else if (status === '단종') {
+            stats.discontinued++;
+          } else if (status === '홀딩') {
+            stats.holding++;
+          }
+          
+          // 브랜드별 운영 상태
+          const brand = row[brandIdx] || '미지정';
+          if (!stats.brandStatus[brand]) {
+            stats.brandStatus[brand] = { 
+              normal: 0, 
+              renewal: 0, 
+              discontinued: 0, 
+              holding: 0 
+            };
+          }
+          
+          // 브랜드별 상태 카운트 증가
+          if (status === '정상운영') {
+            stats.brandStatus[brand].normal++;
+          } else if (status === '리뉴얼') {
+            stats.brandStatus[brand].renewal++;
+          } else if (status === '단종') {
+            stats.brandStatus[brand].discontinued++;
+          } else if (status === '홀딩') {
+            stats.brandStatus[brand].holding++;
+          }
+          
+          // 제조사별 제품 수
+          const manufacturer = row[manufacturerIdx] || '미지정';
+          stats.manufacturers[manufacturer] = (stats.manufacturers[manufacturer] || 0) + 1;
+          
+          // 국가별 제품 수
+          const country = row[countryIdx] || '미지정';
+          stats.countries[country] = (stats.countries[country] || 0) + 1;
+    
+    
+          // 이번 달 추가된 제품 수
+          if (row[releaseDateIdx]) {
+            try {
+              const releaseDate = new Date(row[releaseDateIdx]);
+              const releaseYear = releaseDate.getFullYear();
+              const releaseMonth = releaseDate.getMonth() + 1;
+              
+              if (releaseYear === currentYear && releaseMonth === currentMonth) {
+                stats.thisMonth++;
+              }
+              
+              if (releaseYear === previousMonthYear && releaseMonth === previousMonth) {
+                previousMonthCount++;
+              }
+            } catch (e) {
+              // 날짜 파싱 오류 무시
+            }
+          }
+        });
+        
+        // 이번 달 증가율 계산
+        if (previousMonthCount > 0) {
+          stats.thisMonthPercentage = ((stats.thisMonth - previousMonthCount) / previousMonthCount * 100).toFixed(1);
+        }
+        
+        // UI 업데이트
+        updateDashboardUI(stats);
+        
+        // 최근 추가된 제품 테이블 업데이트
+        updateRecentProductsTable();
+        
+        UI.hideLoading();
+        
+      } catch (error) {
+        console.error('대시보드 업데이트 오류:', error);
+        UI.showAlert('오류', '대시보드 업데이트 중 오류가 발생했습니다: ' + error.message, 'danger');
+        UI.hideLoading();
+      }
+    }
+    
+    /**
+     * 대시보드 UI 업데이트 - 최적화 버전
+     * @param {Object} stats - 통계 데이터
+     */
+    function updateDashboardUI(stats) {
+      // 요약 정보 업데이트
+      $('#total-products').text(stats.total);
+      $('#active-products').text(stats.normal); // 정상운영 제품 수 표시
+      $('#inactive-products').text(stats.discontinued + stats.holding); // 단종 + 홀딩(비운영) 제품 수 표시
+      $('#this-month-count').text(stats.thisMonth);
+      
+      // 증가율에 따라 색상 설정
+      const $thisMonthPercent = $('#this-month-percent');
+      if (stats.thisMonthPercentage > 0) {
+        $thisMonthPercent.text(`+${stats.thisMonthPercentage}%`);
+        $thisMonthPercent.parent().html(`<span class="ms-2 text-success"><i class="fas fa-caret-up"></i> +${stats.thisMonthPercentage}%</span>`);
+      } else if (stats.thisMonthPercentage < 0) {
+        $thisMonthPercent.parent().html(`<span class="ms-2 text-danger"><i class="fas fa-caret-down"></i> ${stats.thisMonthPercentage}%</span>`);
+      } else {
+        $thisMonthPercent.parent().html(`<span class="ms-2 text-muted">0%</span>`);
+      }
+      
+      // 차트 업데이트 - 기존 차트 정리하여 메모리 누수 방지
+      updateBrandStatusChart(stats.brandStatus);
+      updateManufacturerChart(stats.manufacturers);
+      updateCountryChart(stats.countries);  // 국가 차트 업데이트 추가
+    }
+    
+    /**
+     * 브랜드별 운영 상태 차트 업데이트
+     * @param {Object} brandStatus - 브랜드별 운영 상태 데이터
+     */
+    function updateBrandStatusChart(brandStatus) {
+      // 기존 차트가 있으면 정리
+      if (AppState.get('charts').brand) {
+        AppState.get('charts').brand.destroy();
+      }
+      
+      // 차트 데이터 준비
+      const brands = Object.keys(brandStatus).sort((a, b) => {
+        // 합계 기준으로 내림차순 정렬
+        const totalA = brandStatus[a].normal + brandStatus[a].renewal + 
+                      brandStatus[a].discontinued + brandStatus[a].holding;
+        const totalB = brandStatus[b].normal + brandStatus[b].renewal + 
+                      brandStatus[b].discontinued + brandStatus[b].holding;
+        return totalB - totalA;
+      });
+      
+      // 상위 8개만 선택
+      const topBrands = brands.slice(0, 8);
+      
+      const normalData = topBrands.map(brand => brandStatus[brand].normal);
+      const renewalData = topBrands.map(brand => brandStatus[brand].renewal);
+      const discontinuedData = topBrands.map(brand => brandStatus[brand].discontinued);
+      const holdingData = topBrands.map(brand => brandStatus[brand].holding);
+      
+      // 캔버스 컨텍스트
+      const ctx = document.getElementById('brand-status-chart').getContext('2d');
+      
+      // 차트 생성
+      const chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: topBrands,
+          datasets: [
+            {
+              label: '정상운영',
+              data: normalData,
+              backgroundColor: 'rgba(40, 167, 69, 0.7)',
+              borderColor: 'rgba(40, 167, 69, 1)',
+              borderWidth: 1
+            },
+            {
+              label: '리뉴얼',
+              data: renewalData,
+              backgroundColor: 'rgba(0, 123, 255, 0.7)',
+              borderColor: 'rgba(0, 123, 255, 1)',
+              borderWidth: 1
+            },
+            {
+              label: '단종',
+              data: discontinuedData,
+              backgroundColor: 'rgba(220, 53, 69, 0.7)',
+              borderColor: 'rgba(220, 53, 69, 1)',
+              borderWidth: 1
+            },
+            {
+              label: '홀딩',
+              data: holdingData,
+              backgroundColor: 'rgba(255, 193, 7, 0.7)',
+              borderColor: 'rgba(255, 193, 7, 1)',
+              borderWidth: 1
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: {
+              stacked: true,
+              grid: {
+                display: false
+              }
+            },
+            y: {
+              stacked: true,
+              beginAtZero: true
+            }
+          },
+          plugins: {
+            legend: {
+              position: 'top'
+            },
+            tooltip: {
+              mode: 'index',
+              intersect: false
+            }
+          }
+        }
+      });
+      
+      // 차트 인스턴스 저장
+      AppState.get('charts').brand = chart;
+    }
+    
+    /**
+     * 제조사별 제품 수 차트 업데이트
+     * @param {Object} manufacturers - 제조사별 제품 수 데이터
+     */
+    function updateManufacturerChart(manufacturers) {
+      // 기존 차트가 있으면 정리
+      if (AppState.get('charts').manufacturer) {
+        AppState.get('charts').manufacturer.destroy();
+      }
+      
+      // 제조사를 제품 수 기준으로 정렬
+      const sortedManufacturers = Object.entries(manufacturers)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 8); // 상위 8개만 선택
+      
+      const labels = sortedManufacturers.map(item => item[0]);
+      const data = sortedManufacturers.map(item => item[1]);
+      
+      // 동적 색상 생성
+      const colors = generateChartColors(labels.length);
+      
+      // 캔버스 컨텍스트
+      const ctx = document.getElementById('manufacturer-chart').getContext('2d');
+      
+      // 차트 생성
+      const chart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: labels,
+          datasets: [{
+            data: data,
+            backgroundColor: colors.background,
+            borderColor: colors.border,
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'right',
+              labels: {
+                boxWidth: 12,
+                font: {
+                  size: 10
+                }
+              }
+            },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const label = context.label || '';
+                  const value = context.raw;
+                  const total = context.dataset.data.reduce((acc, val) => acc + val, 0);
+                  const percentage = Math.round((value / total) * 100);
+                  return `${label}: ${value}개 (${percentage}%)`;
+                }
+              }
+            }
+          }
+        }
+      });
+      
+      // 차트 인스턴스 저장
+      AppState.get('charts').manufacturer = chart;
+    }
+    
+    /**
+     * 국가별 제품 수 차트 업데이트
+     * @param {Object} countries - 국가별 제품 수 데이터
+     */
+    function updateCountryChart(countries) {
+      // 기존 차트가 있으면 정리
+      if (AppState.get('charts').country) {
+        AppState.get('charts').country.destroy();
+      }
+      
+      // 국가를 제품 수 기준으로 정렬
+      const sortedCountries = Object.entries(countries)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 10); // 상위 10개만 선택
+      
+      const labels = sortedCountries.map(item => item[0]);
+      const data = sortedCountries.map(item => item[1]);
+      
+      // 동적 색상 생성
+      const colors = generateChartColors(labels.length);
+      
+      // 캔버스 컨텍스트
+      const ctx = document.getElementById('country-chart').getContext('2d');
+      
+      // 차트 생성 (가로 막대 차트로 표현)
+      const chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: '제품 수',
+            data: data,
+            backgroundColor: colors.background,
+            borderColor: colors.border,
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          indexAxis: 'y',  // 가로 막대 차트
+          scales: {
+            x: {
+              beginAtZero: true
+            }
+          },
+          plugins: {
+            legend: {
+              display: false  // 범례 숨김
+            },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const value = context.raw;
+                  const total = context.dataset.data.reduce((acc, val) => acc + val, 0);
+                  const percentage = Math.round((value / total) * 100);
+                  return `${value}개 (${percentage}%)`;
+                }
+              }
+            }
+          }
+        }
+      });
+      
+      // 차트 인스턴스 저장
+      AppState.get('charts').country = chart;
+    }
+    
+    /**
+     * 차트용 색상 생성
+     * @param {number} count - 필요한 색상 수
+     * @returns {Object} 배경색과 테두리색 배열
+     */
+    function generateChartColors(count) {
+      const baseColors = [
+        { bg: 'rgba(54, 162, 235, 0.7)', border: 'rgba(54, 162, 235, 1)' },
+        { bg: 'rgba(255, 99, 132, 0.7)', border: 'rgba(255, 99, 132, 1)' },
+        { bg: 'rgba(255, 206, 86, 0.7)', border: 'rgba(255, 206, 86, 1)' },
+        { bg: 'rgba(75, 192, 192, 0.7)', border: 'rgba(75, 192, 192, 1)' },
+        { bg: 'rgba(153, 102, 255, 0.7)', border: 'rgba(153, 102, 255, 1)' },
+        { bg: 'rgba(255, 159, 64, 0.7)', border: 'rgba(255, 159, 64, 1)' },
+        { bg: 'rgba(40, 167, 69, 0.7)', border: 'rgba(40, 167, 69, 1)' },
+        { bg: 'rgba(220, 53, 69, 0.7)', border: 'rgba(220, 53, 69, 1)' }
+      ];
+      
+      // 기본 색상이 충분하면 그대로 사용
+      if (count <= baseColors.length) {
+        return {
+          background: baseColors.slice(0, count).map(c => c.bg),
+          border: baseColors.slice(0, count).map(c => c.border)
+        };
+      }
+      
+      // 기본 색상을 순환하여 사용
+      const result = {
+        background: [],
+        border: []
+      };
+      
+      for (let i = 0; i < count; i++) {
+        const idx = i % baseColors.length;
+        result.background.push(baseColors[idx].bg);
+        result.border.push(baseColors[idx].border);
+      }
+      
+      return result;
+    }
+    
+    /**
+     * 최근 추가된 제품 테이블 업데이트
+     */
+    function updateRecentProductsTable() {
+      const $table = $('#' + DOM.tables.recentProducts);
+      const headers = AppState.get('headers');
+      
+      // 필드 인덱스
+      const nameIdx = headers.indexOf('제품명_발주점검시트');
+      const manufacturerIdx = headers.indexOf('제조사');
+      const activeIdx = headers.indexOf('운영여부');
+      const releaseDateIdx = headers.indexOf('출시연월');
+      
+      // 출시일 기준으로 정렬된 데이터 가져오기
+      const recentProducts = [...AppState.get('productData')]
+        .filter(row => row[releaseDateIdx]) // 출시일이 있는 제품만
+        .sort((a, b) => {
+          // 출시일 내림차순 정렬
+          const dateA = new Date(a[releaseDateIdx] || '2000-01');
+          const dateB = new Date(b[releaseDateIdx] || '2000-01');
+          return dateB - dateA;
+        })
+        .slice(0, 5); // 최근 5개만
+      
+      // 테이블 내용 초기화
+      $table.empty();
+      
+      // 데이터가 없는 경우
+      if (recentProducts.length === 0) {
+        $table.html('<tr><td colspan="3" class="text-center">최근 추가된 제품이 없습니다.</td></tr>');
+        return;
+      }
+      
+      // DocumentFragment 사용
+      const fragment = document.createDocumentFragment();
+      
+      // 각 제품 행 생성
+      recentProducts.forEach(product => {
+        const $row = $(document.createElement('tr'));
+        
+        // 제품명
+        const $nameCell = $(document.createElement('td'));
+        $nameCell.text(product[nameIdx] || '-');
+        $row.append($nameCell);
+        
+        // 제조사
+        const $manufacturerCell = $(document.createElement('td'));
+        $manufacturerCell.text(product[manufacturerIdx] || '-');
+        $row.append($manufacturerCell);
+        
+        // 운영여부
+        const $statusCell = $(document.createElement('td'));
+        const status = product[activeIdx] || '-';
+        const statusClass = status === '운영' ? 'badge-success' : 'badge-secondary';
+        
+        const $statusBadge = $(document.createElement('span'));
+        $statusBadge.addClass(`badge ${statusClass}`).text(status);
+        
+        $statusCell.append($statusBadge);
+        $row.append($statusCell);
+        
+        fragment.appendChild($row[0]);
+      });
+      
+      // 한 번에 DOM에 추가
+      $table.append(fragment);
+    }
+
+</script>

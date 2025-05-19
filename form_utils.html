@@ -1,0 +1,345 @@
+<script>
+
+    /**
+     * 폼 필드 생성 - 최적화 버전
+     * @param {Object} fieldDef - 필드 정의 객체
+     * @returns {jQuery} 생성된 폼 필드
+     */
+     function createFormField(fieldDef) {
+      // 필수 필드 라벨 클래스
+      const labelClass = fieldDef.required ? 'form-label required-field' : 'form-label';
+      const fieldIcon = getFieldTypeIcon(fieldDef.type);
+      const helpText = fieldDef.description ? 
+                     `<small class="form-text text-muted"><i class="fas fa-info-circle me-1"></i>
+                      ${fieldDef.description}</small>` : '';
+      
+      const $formGroup = $(document.createElement('div'));
+      $formGroup.addClass('form-group');
+      
+      // 필드 타입에 따라 다른 입력 요소 생성
+      switch(fieldDef.type) {
+        case 'textarea':
+          const $textareaLabel = $(document.createElement('label'));
+          $textareaLabel.attr('for', fieldDef.field)
+                       .addClass(labelClass)
+                       .html(`<i class="fas ${fieldIcon} me-1 text-muted small"></i> ${fieldDef.label}`);
+          
+          const $textarea = $(document.createElement('textarea'));
+          $textarea.addClass('form-control')
+                  .attr('id', fieldDef.field)
+                  .attr('name', fieldDef.field)
+                  .attr('rows', '3');
+          
+          if (fieldDef.required) $textarea.attr('required', '');
+          
+          $formGroup.append($textareaLabel).append($textarea);
+          if (helpText) $formGroup.append($(helpText));
+          
+          break;
+          
+        case 'select':
+          const $selectLabel = $(document.createElement('label'));
+          $selectLabel.attr('for', fieldDef.field)
+                     .addClass(labelClass)
+                     .html(`<i class="fas ${fieldIcon} me-1 text-muted small"></i> ${fieldDef.label}`);
+          
+          const $select = $(document.createElement('select'));
+          $select.addClass('form-select')
+                .attr('id', fieldDef.field)
+                .attr('name', fieldDef.field);
+          
+          if (fieldDef.required) $select.attr('required', '');
+          
+          // 기본 옵션
+          const $defaultOption = $(document.createElement('option'));
+          $defaultOption.attr('value', '').text('선택하세요');
+          $select.append($defaultOption);
+          
+          // 옵션 추가
+          if (fieldDef.options && Array.isArray(fieldDef.options)) {
+            fieldDef.options.forEach(opt => {
+              const $option = $(document.createElement('option'));
+              $option.attr('value', opt).text(opt);
+              $select.append($option);
+            });
+          }
+          
+          $formGroup.append($selectLabel).append($select);
+          if (helpText) $formGroup.append($(helpText));
+          
+          break;
+          
+        case 'date':
+          const $dateLabel = $(document.createElement('label'));
+          $dateLabel.attr('for', fieldDef.field)
+                   .addClass(labelClass)
+                   .html(`<i class="fas ${fieldIcon} me-1 text-muted small"></i> ${fieldDef.label}`);
+          
+          const $dateInput = $(document.createElement('input'));
+          $dateInput.attr('type', 'month')
+                   .addClass('form-control')
+                   .attr('id', fieldDef.field)
+                   .attr('name', fieldDef.field);
+          
+          if (fieldDef.required) $dateInput.attr('required', '');
+          
+          $formGroup.append($dateLabel).append($dateInput);
+          if (helpText) $formGroup.append($(helpText));
+          
+          break;
+          
+        case 'number':
+          const $numberLabel = $(document.createElement('label'));
+          $numberLabel.attr('for', fieldDef.field)
+                     .addClass(labelClass)
+                     .html(`<i class="fas ${fieldIcon} me-1 text-muted small"></i> ${fieldDef.label}`);
+          
+          const $numberInput = $(document.createElement('input'));
+          $numberInput.attr('type', 'number')
+                     .addClass('form-control')
+                     .attr('id', fieldDef.field)
+                     .attr('name', fieldDef.field)
+                     .attr('step', 'any');
+          
+          if (fieldDef.required) $numberInput.attr('required', '');
+          
+          $formGroup.append($numberLabel).append($numberInput);
+          if (helpText) $formGroup.append($(helpText));
+          
+          break;
+    
+        case 'checkbox':
+          const $checkboxContainer = $(document.createElement('div'));
+          $checkboxContainer.addClass('form-check mt-4');
+          
+          const $checkbox = $(document.createElement('input'));
+          $checkbox.attr('type', 'checkbox')
+                   .addClass('form-check-input')
+                   .attr('id', fieldDef.field)
+                   .attr('name', fieldDef.field);
+          
+          if (fieldDef.required) $checkbox.attr('required', '');
+          
+          const $checkboxLabel = $(document.createElement('label'));
+          $checkboxLabel.addClass('form-check-label')
+                        .attr('for', fieldDef.field)
+                        .html(`<i class="fas ${fieldIcon} me-1 text-muted small"></i> ${fieldDef.label}`);
+          
+          $checkboxContainer.append($checkbox).append($checkboxLabel);
+          $formGroup.append($checkboxContainer);
+          
+          if (helpText) $formGroup.append($(helpText));
+          
+          break;
+          
+        default: // text
+          const $textLabel = $(document.createElement('label'));
+          $textLabel.attr('for', fieldDef.field)
+                   .addClass(labelClass)
+                   .html(`<i class="fas ${fieldIcon} me-1 text-muted small"></i> ${fieldDef.label}`);
+          
+          const $textInput = $(document.createElement('input'));
+          $textInput.attr('type', 'text')
+                   .addClass('form-control')
+                   .attr('id', fieldDef.field)
+                   .attr('name', fieldDef.field);
+          
+          if (fieldDef.required) $textInput.attr('required', '');
+          
+          $formGroup.append($textLabel).append($textInput);
+          if (helpText) $formGroup.append($(helpText));
+      }
+      
+      return $formGroup;
+    }
+    
+    
+    
+    /**
+     * 폼 스텝 이동 로직 설정 - 최적화 버전
+     */
+    function setupFormSteps() {
+      let currentStep = 0;
+      const steps = $('.field-step');
+      const stepperItems = $('.stepper-item');
+      const totalSteps = steps.length;
+      
+      // 다음 버튼 클릭 이벤트
+      $('.btn-next').on('click', function() {
+        // 현재 단계의 필수 필드 검증
+        const $currentStep = $(steps[currentStep]);
+        const isValid = validateCurrentStep($currentStep);
+        
+        if (!isValid) {
+          UI.showAlert('경고', '현재 단계의 필수 항목을 모두 입력해주세요.', 'warning');
+          return;
+        }
+        
+        if (currentStep < totalSteps - 1) {
+          // 현재 단계 숨김 - 애니메이션 대신 직접 숨김 (성능 개선)
+          $(steps[currentStep]).hide();
+          
+          // 다음 단계로 이동
+          currentStep++;
+          
+          // 다음 단계 표시 - fadeIn 대신 직접 표시 후 클래스 추가
+          const $nextStep = $(steps[currentStep]);
+          $nextStep.show();
+          
+          // 스텝 인디케이터 업데이트 - 일괄 처리로 최적화
+          stepperItems.removeClass('active');
+          $(stepperItems[currentStep]).addClass('active');
+          
+          // 이전 버튼 활성화
+          $('.btn-prev').prop('disabled', false);
+          
+          // 마지막 단계인지 확인
+          if (currentStep === totalSteps - 1) {
+            // 다음 버튼을 '완료'로 변경
+            $('.btn-next').html('완료<i class="fas fa-check ms-2"></i>')
+                           .addClass('btn-success').removeClass('btn-primary');
+          }
+        } else {
+          // 마지막 단계에서 '완료' 클릭 시 제출 컨테이너 표시
+          $(steps[currentStep]).hide();
+          $('.nav-buttons').hide();
+          $('.submit-container').show();
+          
+          // 모든 스텝 완료 표시
+          stepperItems.addClass('completed');
+        }
+        
+        // 상단으로 스크롤
+        $('html, body').animate({ scrollTop: $('#form-fields-container').offset().top - 20 }, 300);
+      });
+      
+      // 이전 버튼 클릭 이벤트
+      $('.btn-prev').on('click', function() {
+        if (currentStep > 0) {
+          // 현재 단계 숨김
+          $(steps[currentStep]).hide();
+          
+          // 이전 단계로 이동
+          currentStep--;
+          
+          // 이전 단계 표시
+          $(steps[currentStep]).show();
+          
+          // 스텝 인디케이터 업데이트
+          stepperItems.removeClass('active');
+          $(stepperItems[currentStep]).addClass('active');
+          
+          // 첫 단계인지 확인
+          if (currentStep === 0) {
+            $('.btn-prev').prop('disabled', true);
+          }
+          
+          // 완료 버튼을 다시 '다음'으로 변경
+          $('.btn-next').html('다음<i class="fas fa-chevron-right ms-2"></i>')
+                         .addClass('btn-primary').removeClass('btn-success');
+          
+          // 상단으로 스크롤
+          $('html, body').animate({ scrollTop: $('#form-fields-container').offset().top - 20 }, 300);
+        }
+      });
+      
+      // 스텝 인디케이터 클릭 이벤트 - 이벤트 위임 패턴 적용
+      $('.stepper').on('click', '.stepper-item', function() {
+        const clickedStep = $('.stepper-item').index(this);
+        
+        // 클릭한 스텝이 현재 스텝보다 이전이면 바로 이동 가능
+        if (clickedStep < currentStep) {
+          // 현재 단계 숨김
+          $(steps[currentStep]).hide();
+          
+          // 클릭한 단계로 이동
+          currentStep = clickedStep;
+          
+          // 클릭한 단계 표시
+          $(steps[currentStep]).show();
+          
+          // 스텝 인디케이터 업데이트
+          stepperItems.removeClass('active');
+          $(stepperItems[currentStep]).addClass('active');
+          
+          // 첫 단계인지 확인
+          $('.btn-prev').prop('disabled', currentStep === 0);
+          
+          // 다음 버튼 상태 업데이트
+          $('.btn-next').html('다음<i class="fas fa-chevron-right ms-2"></i>')
+                         .addClass('btn-primary').removeClass('btn-success');
+          
+          // 상단으로 스크롤
+          $('html, body').animate({ scrollTop: $('#form-fields-container').offset().top - 20 }, 300);
+        }
+      });
+    }
+    
+    /**
+     * 현재 단계의 필수 필드 검증 - 최적화 버전
+     * @param {jQuery} $step - 현재 단계 jQuery 객체
+     * @returns {boolean} 유효성 검사 통과 여부
+     */
+    function validateCurrentStep($step) {
+      // 현재 스텝의 모든 필수 필드 가져오기
+      const requiredFields = Array.from($step.find('[required]'));
+      
+      // 모든 필수 필드가 유효한지 확인
+      const hasInvalidField = requiredFields.some(field => {
+        // jQuery 객체 대신 DOM 요소 직접 사용
+        const isEmpty = !field.value;
+        
+        if (isEmpty) {
+          field.classList.add('is-invalid');
+          
+          // 첫 번째 유효하지 않은 필드로 스크롤
+          $('html, body').animate({ scrollTop: $(field).offset().top - 100 }, 300);
+          
+          // 해당 필드에 포커스
+          field.focus();
+          
+          return true; // 유효하지 않은 필드 발견
+        } else {
+          field.classList.remove('is-invalid');
+          return false;
+        }
+      });
+      
+      return !hasInvalidField;
+    }
+
+    /**
+     * 폼 내에서 자동 완성 기능 추가 - jQuery UI 자동완성 사용
+     */
+     function setupFormAutoComplete() {
+      const autoCompleteFields = [
+        { selector: '#브랜드', field: '브랜드' },
+        { selector: '#제조사', field: '제조사' }
+      ];
+      
+      // 이미 적용된 자동완성은 제거 (메모리 누수 방지)
+      autoCompleteFields.forEach(item => {
+        if ($(item.selector).autocomplete('instance')) {
+          $(item.selector).autocomplete('destroy');
+        }
+      });
+      
+      // 각 필드에 자동완성 적용
+      autoCompleteFields.forEach(item => {
+        const $field = $(item.selector);
+        if ($field.length) {
+          // 캐시된 고유값 사용
+          const values = DataManager.getUniqueValuesByFieldName(item.field);
+          
+          $field.autocomplete({
+            source: values,
+            minLength: 1,
+            delay: 0,
+            autoFocus: true
+          });
+        }
+      });
+    }
+    
+
+</script>

@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- CDN 라이브러리 로드 -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.css">
+  
+  <!-- 스타일시트 포함 -->
+  <?!= include('Stylesheet'); ?>
+  
+  <title>제품 관리 시스템</title>
+</head>
+<body>
+  <div class="container-fluid">
+    <div class="row">
+      <!-- 사이드바 네비게이션 -->
+      <nav id="sidebar" class="col-md-3 col-lg-2 d-md-block bg-light sidebar">
+        <div class="position-sticky">
+          <div class="sidebar-header">
+            <h3>제품 관리 시스템</h3>
+          </div>
+          <ul class="nav flex-column">
+            <li class="nav-item">
+              <a class="nav-link active" href="#" id="dashboard-link">
+                <i class="fas fa-tachometer-alt"></i> 대시보드
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" id="products-link">
+                <i class="fas fa-box"></i> 제품 목록
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" id="accessories-link">
+                <i class="fas fa-database"></i> 부자재 목록
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" id="add-product-link">
+                <i class="fas fa-plus-circle"></i> 제품 추가
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" id="field-management-link">
+                <i class="fas fa-table"></i> 필드 관리
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" id="export-link">
+                <i class="fas fa-file-export"></i> 데이터 내보내기
+              </a>
+            </li>
+            <li class="nav-item">
+              <a class="nav-link" href="#" id="settings-link">
+                <i class="fas fa-cog"></i> 설정
+              </a>
+            </li>
+          </ul>
+        </div>
+      </nav>
+
+      <!-- 메인 콘텐츠 -->
+      <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
+        <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+          <h1 class="h2" id="page-title">대시보드</h1>
+          <div class="btn-toolbar mb-2 mb-md-0">
+            <div class="input-group">
+              <input type="text" class="form-control" id="search-input" placeholder="검색...">
+              <button class="btn btn-primary" type="button" id="search-button">
+                <i class="fas fa-search"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 로딩 스피너 -->
+        <div id="loading-indicator" class="text-center">
+          <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">로딩 중...</span>
+          </div>
+          <p class="mt-2">데이터를 불러오는 중입니다...</p>
+          <p class="text-muted small">오래 걸리면 페이지를 새로고침해 주세요.</p>
+          <button id="manual-stop-loading" class="btn btn-sm btn-outline-secondary mt-3">로딩 중단</button>
+        </div>
+
+        <!-- 알림 메시지 -->
+        <div id="alert-container"></div>
+
+        <!-- 대시보드 뷰 - 쌓은 막대 차트로 수정 -->
+        <div id="dashboard-view" class="content-view">
+          <!-- 주요 요약 정보 -->
+          <div class="row mb-4">
+            <div class="col-md-3">
+              <div class="card h-100">
+                <div class="card-body">
+                  <div class="d-flex align-items-center">
+                    <div class="rounded-circle p-3 bg-primary bg-opacity-10 me-3">
+                      <i class="fas fa-box-open text-primary fa-2x"></i>
+                    </div>
+                    <div>
+                      <h6 class="text-muted mb-1">전체 제품</h6>
+                      <h2 class="card-text mb-0" id="total-products">0</h2>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="card h-100">
+                <div class="card-body">
+                  <div class="d-flex align-items-center">
+                    <div class="rounded-circle p-3 bg-success bg-opacity-10 me-3">
+                      <i class="fas fa-check-circle text-success fa-2x"></i>
+                    </div>
+                    <div>
+                      <h6 class="text-muted mb-1">정상 운영</h6>
+                      <h2 class="card-text mb-0" id="active-products">0</h2>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="card h-100">
+                <div class="card-body">
+                  <div class="d-flex align-items-center">
+                    <div class="rounded-circle p-3 bg-warning bg-opacity-10 me-3">
+                      <i class="fas fa-exclamation-triangle text-warning fa-2x"></i>
+                    </div>
+                    <div>
+                      <h6 class="text-muted mb-1">미운영</h6>
+                      <h2 class="card-text mb-0" id="inactive-products">0</h2>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-3">
+              <div class="card h-100">
+                <div class="card-body">
+                  <div class="d-flex align-items-center">
+                    <div class="rounded-circle p-3 bg-info bg-opacity-10 me-3">
+                      <i class="fas fa-calendar-alt text-info fa-2x"></i>
+                    </div>
+                    <div>
+                      <h6 class="text-muted mb-1">이번 달 추가</h6>
+                      <div id="this-month-added" class="d-flex align-items-baseline">
+                        <h2 class="card-text mb-0" id="this-month-count">0</h2>
+                        <span class="ms-2 text-success"><i class="fas fa-caret-up"></i> <span id="this-month-percent">0%</span></span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- 차트 영역 -->
+          <div class="row">
+            <!-- 브랜드별 운영 상태 차트 -->
+            <div class="col-md-6">
+              <div class="card mb-4">
+                <div class="card-body">
+                  <h5 class="card-title">브랜드별 운영 상태</h5>
+                  <div class="chart-container" style="position: relative; height: 300px;">
+                    <canvas id="brand-status-chart"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <!-- 제조사별 제품 수 차트 -->
+            <div class="col-md-6">
+              <div class="card mb-4">
+                <div class="card-body">
+                  <h5 class="card-title">제조사별 제품 수</h5>
+                  <div class="chart-container" style="position: relative; height: 300px;">
+                    <canvas id="manufacturer-chart"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 국가별 제품 수 차트 -->
+            <div class="col-md-6">
+              <div class="card mb-4">
+                <div class="card-body">
+                  <h5 class="card-title">국가별 제품 수</h5>
+                  <div class="chart-container" style="position: relative; height: 300px;">
+                    <canvas id="country-chart"></canvas>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 최근 추가된 제품 테이블 -->
+          <div class="row">
+            <div class="col-12">
+              <div class="card mb-4">
+                <div class="card-body">
+                  <h5 class="card-title">최근 추가된 제품</h5>
+                  <div class="table-responsive">
+                    <table class="table table-sm">
+                      <thead>
+                        <tr>
+                          <th>제품명</th>
+                          <th>제조사</th>
+                          <th>운영여부</th>
+                        </tr>
+                      </thead>
+                      <tbody id="recent-products-table">
+                        <tr>
+                          <td colspan="3" class="text-center">로딩 중...</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 제품 목록 뷰 -->
+        <div id="products-view" class="content-view d-none">
+          <div class="card">
+            <div class="card-body">
+              <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                  <thead>
+                    <tr>
+                      <thead>
+                        <tr>
+                          <th>#</th>
+                          <th>사방넷 코드</th>
+                          <th>제품명</th>
+                          <th>제조사</th>
+                          <th>용량</th>
+                          <th>운영여부</th>
+                          <th>출시연월</th>
+                          <th>운영 국가</th>
+                          <th>액션</th>
+                        </tr>
+                      </thead>
+                    </tr>
+                  </thead>
+                  <tbody id="products-table">
+                    <tr>
+                      <td colspan="8" class="text-center">로딩 중...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              
+              <!-- 페이지네이션 -->
+              <nav aria-label="Page navigation">
+                <ul class="pagination justify-content-center" id="pagination">
+                </ul>
+              </nav>
+            </div>
+          </div>
+        </div>
+
+        <!-- 제품 추가/수정 뷰 -->
+        <div id="add-product-view" class="content-view d-none">
+          <div class="card">
+            <div class="card-body">
+              <form id="product-form">
+                <input type="hidden" id="product-row-index" value="-1">
+                <input type="hidden" id="product-sabang-code" value="">
+                <div class="row" id="form-fields-container">
+                  <!-- 폼 필드들이 동적으로 생성됨 -->
+                </div>
+                <div class="text-center mt-4">
+                  <button type="submit" class="btn btn-primary">저장</button>
+                  <button type="button" class="btn btn-secondary" id="cancel-button">취소</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <!-- 필드 관리 뷰 -->
+        <div id="field-management-view" class="content-view d-none">
+          <div class="row mb-4">
+            <div class="col-md-12">
+              <div class="card">
+                <div class="card-body">
+                  <h5 class="card-title">필드 관리</h5>
+                  <p class="card-text">시스템에서 사용되는 필드를 관리합니다. 새 필드를 추가하거나 기존 필드를 수정할 수 있습니다.</p>
+                  <button class="btn btn-primary" id="add-field-button">
+                    <i class="fas fa-plus"></i> 새 필드 추가
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div class="row">
+            <div class="col-md-12">
+              <div class="card">
+                <div class="card-body">
+                  <div class="table-responsive">
+                    <table class="table table-striped table-hover">
+                      <thead>
+                        <tr>
+                          <th>필드명</th>
+                          <th>라벨</th>
+                          <th>타입</th>
+                          <th>그룹</th>
+                          <th>필수</th>
+                          <th>액션</th>
+                        </tr>
+                      </thead>
+                      <tbody id="fields-table">
+                        <tr>
+                          <td colspan="6" class="text-center">로딩 중...</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 개선된 제품 상세 정보 모달 -->
+        <div class="modal fade" id="product-details-modal" tabindex="-1" aria-labelledby="product-details-modal-label" aria-hidden="true">
+          <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title" id="product-details-modal-label">제품 상세정보</h5>
+                <div class="ms-auto d-flex align-items-center">
+                  <span id="product-status-badge" class="badge badge-pill me-3"></span>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+              </div>
+              
+              <!-- 상단 요약 정보 -->
+              <div class="product-summary p-3 border-bottom">
+                <div class="row align-items-center">
+                  <div class="col-md-1 text-center">
+                    <div class="product-icon rounded-circle bg-light d-flex align-items-center justify-content-center mx-auto" style="width: 60px; height: 60px;">
+                      <i class="fas fa-box-open fa-2x text-primary"></i>
+                    </div>
+                  </div>
+                  <div class="col-md-11">
+                    <div class="row">
+                      <div class="col-md-6">
+                        <h4 id="product-title" class="mb-1 fw-bold"></h4>
+                        <p id="product-subtitle" class="text-muted mb-0"></p>
+                      </div>
+                      <div class="col-md-6">
+                        <div class="row">
+                          <div class="col-6">
+                            <div class="detail-key small">사방넷 코드</div>
+                            <div class="detail-value fw-bold" id="product-code"></div>
+                          </div>
+                          <div class="col-6">
+                            <div class="detail-key small">출시일</div>
+                            <div class="detail-value" id="product-release-date"></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <!-- 추가 요약 정보가 들어갈 부분 -->
+                <div id="product-summary-section"></div>
+              </div>
+              
+              <!-- 탭 네비게이션 -->
+              <div class="modal-body p-0">
+                <ul class="nav nav-tabs nav-fill" id="productDetailTabs" role="tablist">
+                <!-- 기존 탭들... -->
+                
+                <!-- 부자재 탭 추가 -->
+                <li class="nav-item" role="presentation">
+                  <button class="nav-link" id="accessories-tab" data-bs-toggle="tab" data-bs-target="#accessories-content" type="button" role="tab" aria-controls="accessories-content" aria-selected="false">
+                    <i class="fas fa-puzzle-piece tab-icon"></i> 부자재 정보
+                    <span class="badge rounded-pill bg-light text-dark ms-1" id="accessories-count">0</span>
+                  </button>
+                </li>
+              </ul>
+                
+                <!-- 탭 콘텐츠에 부자재 내용 추가 -->
+                <div class="tab-content p-3" id="productDetailTabContent">
+                  <!-- 기존 탭 콘텐츠들... -->
+                  
+                  <!-- 부자재 탭 콘텐츠 -->
+                  <div class="tab-pane fade" id="accessories-content" role="tabpanel" aria-labelledby="accessories-tab">
+                    <h6 class="border-bottom pb-2 mb-3">
+                      <i class="fas fa-puzzle-piece me-2"></i> 부자재 정보
+                    </h6>
+                    <div class="table-responsive">
+                      <table class="table table-sm table-hover">
+                        <thead>
+                          <tr>
+                            <th>부자재코드</th>
+                            <th>부자재명(한)</th>
+                            <th>수량</th>
+                            <th>액션</th>
+                          </tr>
+                        </thead>
+                        <tbody id="product-accessories-table">
+                          <tr>
+                            <td colspan="4" class="text-center">로딩 중...</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+                <button type="button" class="btn btn-primary" id="edit-product-button">수정</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 삭제 확인 모달 -->
+        <div class="modal fade" id="delete-confirm-modal" tabindex="-1" aria-labelledby="delete-confirm-modal-label" aria-hidden="true">
+          <div class="modal-dialog">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title" id="delete-confirm-modal-label">제품 삭제 확인</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body">
+                <p>정말로 이 제품을 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.</p>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-danger" id="confirm-delete-button">삭제</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 필드 추가/수정 모달 -->
+        <div class="modal fade" id="field-modal" tabindex="-1" aria-labelledby="field-modal-label" aria-hidden="true">
+          <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title" id="field-modal-label">필드 추가</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body">
+                <form id="field-form">
+                  <input type="hidden" id="field-action" value="add">
+                  <div class="row">
+                    <div class="col-md-6 mb-3">
+                      <label for="field-name" class="form-label">필드명 (영문/숫자)</label>
+                      <input type="text" class="form-control" id="field-name" required>
+                      <small class="form-text text-muted">공백 없이 영문/숫자로 입력하세요. 시스템 내부 식별자로 사용됩니다.</small>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                      <label for="field-label" class="form-label">라벨 (표시명)</label>
+                      <input type="text" class="form-control" id="field-label" required>
+                      <small class="form-text text-muted">사용자에게 표시될 이름입니다.</small>
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div class="col-md-6 mb-3">
+                      <label for="field-type" class="form-label">필드 타입</label>
+                      <select class="form-select" id="field-type" required>
+                        <option value="">선택하세요</option>
+                        <option value="text">텍스트</option>
+                        <option value="number">숫자</option>
+                        <option value="date">날짜</option>
+                        <option value="select">선택 목록</option>
+                        <option value="textarea">텍스트 영역</option>
+                        <option value="checkbox">체크박스</option>
+                      </select>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                      <label for="field-group" class="form-label">필드 그룹</label>
+                      <input type="text" class="form-control" id="field-group" list="group-list" required>
+                      <datalist id="group-list">
+                      </datalist>
+                    </div>
+                  </div>
+                  <div class="row">
+                    <div class="col-md-6 mb-3">
+                      <label for="field-order" class="form-label">정렬 순서</label>
+                      <input type="number" class="form-control" id="field-order" min="1" value="1">
+                    </div>
+                    <div class="col-md-6 mb-3">
+                      <div class="form-check mt-4">
+                        <input class="form-check-input" type="checkbox" id="field-required">
+                        <label class="form-check-label" for="field-required">
+                          필수 입력 필드
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="mb-3" id="options-container">
+                    <label for="field-options" class="form-label">선택 옵션</label>
+                    <textarea class="form-control" id="field-options" rows="3" placeholder="각 옵션을 쉼표로 구분하여 입력하세요."></textarea>
+                    <small class="form-text text-muted">선택 목록 타입일 경우 필요합니다.</small>
+                  </div>
+                  <div class="mb-3">
+                    <label for="field-description" class="form-label">설명</label>
+                    <textarea class="form-control" id="field-description" rows="2"></textarea>
+                  </div>
+                </form>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-primary" id="save-field-button">저장</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 부자재 목록 뷰 추가 (제거) -->
+        <!-- 
+        <div id="accessories-view-old" class="content-view d-none">
+          <div class="card mb-3">
+            <div class="card-body">
+              <div class="row mb-3">
+                <div class="col-md-8">
+                  <div class="input-group">
+                    <select class="form-select w-auto" id="accessories-search-field">
+                      <option value="all">전체</option>
+                      <option value="사방넷코드">사방넷코드</option>
+                      <option value="상세제품명(한)">상세제품명(한)</option>
+                      <option value="부자재코드">부자재코드</option>
+                      <option value="부자재명(한)">부자재명(한)</option>
+                    </select>
+                    <input type="text" class="form-control" id="accessories-search-input" placeholder="검색어를 입력하세요">
+                    <button class="btn btn-primary" id="accessories-search-button">
+                      <i class="fas fa-search"></i> 검색
+                    </button>
+                  </div>
+                </div>
+                <div class="col-md-4 text-end">
+                  <button class="btn btn-secondary" id="accessories-refresh-button">
+                    <i class="fas fa-sync-alt"></i> 새로고침
+                  </button>
+                </div>
+              </div>
+              <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                  <thead>
+                    <tr>
+                      <th>사방넷코드</th>
+                      <th>상세제품명(한)</th>
+                      <th>부자재코드</th>
+                      <th>부자재명(한)</th>
+                      <th>액션</th>
+                    </tr>
+                  </thead>
+                  <tbody id="accessories-table">
+                    <tr>
+                      <td colspan="5" class="text-center">로딩 중...</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              
+              <nav aria-label="Page navigation">
+                <ul class="pagination justify-content-center" id="accessories-pagination">
+                </ul>
+              </nav>
+            </div>
+          </div>
+        </div> 
+        -->
+
+        <!-- 부자재 마스터 관리 뷰 -> 통합된 부자재 뷰로 변경 -->
+        <div id="accessories-view" class="content-view d-none">
+          <div class="card mb-3">
+            <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+              <h5 class="mb-0"><i class="fas fa-database me-2"></i> 부자재 목록</h5>
+              <button class="btn btn-light btn-sm" id="add-accessory-master-btn">
+                <i class="fas fa-plus"></i> 새 부자재 추가
+              </button>
+            </div>
+            <div class="card-body">
+              <div class="row mb-3">
+                <div class="col-md-8">
+                  <div class="input-group">
+                    <input type="text" class="form-control" id="accessories-master-search-input" placeholder="부자재 코드, 이름, 공급업체 등으로 검색">
+                    <button class="btn btn-primary" id="accessories-master-search-button">
+                      <i class="fas fa-search"></i> 검색
+                    </button>
+                  </div>
+                </div>
+                <div class="col-md-4 text-end">
+                  <button class="btn btn-secondary" id="accessories-master-refresh-button">
+                    <i class="fas fa-sync-alt"></i> 새로고침
+                  </button>
+                </div>
+              </div>
+              <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                  <thead>
+                    <tr>
+                      <th>부자재코드</th>
+                      <th>부자재명(한)</th>
+                      <th>사용 제품 수</th>
+                      <th>액션</th>
+                    </tr>
+                  </thead>
+                  <tbody id="accessories-master-table">
+                    <tr>
+                      <td colspan="4" class="text-center">로딩 중...</td> <!-- Colspan은 JS에서 업데이트됩니다 -->
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              
+              <!-- 페이지네이션 -->
+              <nav aria-label="Page navigation">
+                <ul class="pagination justify-content-center" id="accessories-master-pagination">
+                </ul>
+              </nav>
+            </div>
+          </div>
+        </div>
+
+        <!-- 부자재 상세정보 모달 -->
+        <div class="modal fade" id="accessory-details-modal" tabindex="-1" aria-labelledby="accessory-details-modal-label" aria-hidden="true">
+          <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title" id="accessory-details-modal-label">부자재 상세정보</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body">
+                <div class="row">
+                  <div class="col-md-6">
+                    <h6>마스터 정보</h6>
+                    <div class="table-responsive mb-3">
+                      <table class="table table-sm table-bordered" id="accessory-master-details-table">
+                        <!-- 상세 정보가 여기에 동적으로 로드됩니다 -->
+                      </table>
+                    </div>
+                  </div>
+                  <div class="col-md-6">
+                    <h6>사용 제품 목록</h6>
+                    <div class="alert alert-info" role="alert" id="accessory-usage-info">
+                      사용 정보를 로딩 중입니다...
+                    </div>
+                    <div class="table-responsive">
+                      <table class="table table-sm table-hover" id="accessory-products-table">
+                        <thead>
+                          <tr>
+                            <th>사방넷코드</th>
+                            <th>제품명</th>
+                            <th>액션</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <!-- 사용 제품 목록이 여기에 동적으로 로드됩니다 -->
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-primary edit-master-accessory-modal-btn">수정하기</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 부자재 마스터 추가/수정 모달 -->
+        <div class="modal fade" id="accessory-master-modal" tabindex="-1" aria-labelledby="accessory-master-modal-label" aria-hidden="true">
+          <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title" id="accessory-master-modal-label">부자재 추가</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body">
+                <form id="accessory-master-form">
+                  <div class="row">
+                    <div class="col-md-6">
+                      <h6>부자재 정보</h6>
+                      <div class="mb-3">
+                        <label for="accessory-master-code" class="form-label">부자재코드 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="accessory-master-code" required>
+                      </div>
+                      <div class="mb-3">
+                        <label for="accessory-master-name" class="form-label">부자재명(한) <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" id="accessory-master-name" required>
+                      </div>
+                      <div id="accessory-master-form-dynamic-fields">
+                        <!-- 동적 필드가 여기에 생성됩니다 -->
+                      </div>
+                    </div>
+                    <div class="col-md-6">
+                      <div class="border-start ps-3 h-100">
+                        <h6>제품 매핑</h6>
+                        <div class="mb-3">
+                          <label for="product-search-input" class="form-label">제품 검색</label>
+                          <div class="input-group">
+                            <input type="text" class="form-control" id="product-search-input" placeholder="제품명 또는 코드로 검색...">
+                            <button class="btn btn-outline-secondary" type="button" id="clear-product-search-btn"><i class="fas fa-times"></i></button>
+                          </div>
+                          <div id="product-search-results" class="list-group mt-2" style="max-height: 150px; overflow-y: auto;">
+                            <!-- 검색 결과가 여기에 표시됩니다 -->
+                          </div>
+                        </div>
+                        <div class="mb-3">
+                          <label class="form-label">매핑된 제품 (<span id="mapped-products-count">0</span>)</label>
+                          <div id="mapped-products-list" class="list-group" style="max-height: 200px; overflow-y: auto;">
+                             <!-- 매핑된 제품 목록이 여기에 표시됩니다 -->
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </form>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-primary" id="save-accessory-master-btn">저장</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 부자재 마스터 삭제 확인 모달 -->
+        <div class="modal fade" id="delete-accessory-master-modal" tabindex="-1" aria-labelledby="delete-accessory-master-modal-label" aria-hidden="true">
+          <div class="modal-dialog">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title" id="delete-accessory-master-modal-label">부자재 삭제 확인</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body">
+                <p>정말로 이 부자재를 삭제하시겠습니까?</p>
+                <p>부자재 코드: <strong id="delete-accessory-master-code"></strong></p>
+                <div class="alert alert-warning">
+                  <i class="fas fa-exclamation-triangle me-2"></i> 이 작업은 되돌릴 수 없습니다.
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-danger" id="confirm-delete-accessory-master-btn">삭제</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 설정 모달 -->
+        <div class="modal fade" id="settings-modal" tabindex="-1" aria-labelledby="settings-modal-label" aria-hidden="true">
+          <div class="modal-dialog">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title" id="settings-modal-label">시스템 설정</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body">
+                <form id="settings-form">
+                  <div class="mb-3">
+                    <label for="items-per-page" class="form-label">페이지당 항목 수</label>
+                    <select class="form-select" id="items-per-page">
+                      <option value="10">10</option>
+                      <option value="25">25</option>
+                      <option value="50">50</option>
+                      <option value="100">100</option>
+                    </select>
+                  </div>
+                  <div class="mb-3">
+                    <label for="theme-select" class="form-label">테마</label>
+                    <select class="form-select" id="theme-select">
+                      <option value="light">라이트 모드</option>
+                      <option value="dark">다크 모드</option>
+                    </select>
+                  </div>
+                </form>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-primary" id="save-settings-button">저장</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- 스크립트 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js"></script>
+  
+  <!-- 디버깅용 스크립트 -->
+  <script>
+    // 콘솔 로그 메시지를 화면에 표시하는 함수
+    window.onerror = function(message, source, lineno, colno, error) {
+      var errorDiv = document.createElement('div');
+      errorDiv.style.position = 'fixed';
+      errorDiv.style.bottom = '10px';
+      errorDiv.style.right = '10px';
+      errorDiv.style.backgroundColor = 'rgba(255, 0, 0, 0.8)';
+      errorDiv.style.color = 'white';
+      errorDiv.style.padding = '10px';
+      errorDiv.style.borderRadius = '5px';
+      errorDiv.style.zIndex = '9999';
+      errorDiv.innerHTML = '<strong>에러:</strong> ' + message + '<br><strong>위치:</strong> ' + source + ' ' + lineno + ':' + colno;
+      document.body.appendChild(errorDiv);
+      
+      // 10초 후 에러 메시지 제거
+      setTimeout(function() {
+        document.body.removeChild(errorDiv);
+      }, 10000);
+      
+      return false;
+    };
+    
+    // 페이지 로드 완료 확인
+    window.addEventListener('load', function() {
+      console.log('페이지 로드 완료');
+      
+      // 45초 후에도 로딩 인디케이터가 계속 표시된다면 강제로 제거
+      setTimeout(function() {
+        if (!document.getElementById('loading-indicator').classList.contains('d-none')) {
+          console.log('안전 장치 작동: 로딩 인디케이터 강제 제거');
+          document.getElementById('loading-indicator').classList.add('d-none');
+          
+          // 경고 메시지 표시
+          var warningDiv = document.createElement('div');
+          warningDiv.classList.add('alert', 'alert-warning', 'mt-3');
+          warningDiv.innerHTML = '<strong>알림:</strong> 데이터 로딩에 문제가 발생했습니다. 페이지를 새로고침하거나 나중에 다시 시도해 주세요.';
+          document.querySelector('main').prepend(warningDiv);
+          
+          // 60초 후 경고 메시지 제거
+          setTimeout(function() {
+            if (warningDiv.parentNode) {
+              warningDiv.parentNode.removeChild(warningDiv);
+            }
+          }, 60000);
+        }
+      }, 45000);
+    });
+  </script>
+  
+  <!-- 메인 JavaScript 포함 -->
+  <?!= include('config'); ?>
+  <?!= include('app_state'); ?>
+  <?!= include('ui'); ?>
+  <?!= include('server_api'); ?>
+  <?!= include('data_manager'); ?>
+  <?!= include('utils'); ?>
+  <?!= include('form_utils'); ?>
+  <?!= include('export_utils'); ?>
+  <?!= include('product_management'); ?>
+  <?!= include('field_management'); ?>
+  <?!= include('document_manager'); ?>
+  <?!= include('accessories_management'); ?>
+  <?!= include('dashboard'); ?>
+  <?!= include('search_filter'); ?>
+  <?!= include('user_permissions'); ?>
+  <?!= include('main'); ?>
+</body>
+</html>

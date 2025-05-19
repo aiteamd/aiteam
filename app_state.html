@@ -1,0 +1,80 @@
+<script>
+    /**
+     * 앱 상태 관리 - 싱글톤 패턴 구현
+     */
+    const AppState = (function() {
+      // 비공개 상태 변수
+      const _state = {
+        productData: [], // 원본 제품 데이터
+        filteredProductData: [], // 필터링된 데이터
+        headers: [], // 테이블 헤더
+        fieldDefinitions: [], // 필드 정의
+        fieldGroups: {}, // 필드 그룹
+        currentFilter: 'all', // 현재 필터
+        currentPage: 1, // 현재 페이지
+        itemsPerPage: 10, // 페이지당 표시 항목 수
+        currentRowIndex: -1, // 현재 선택한 행 인덱스
+        currentSabangCode: '', // 현재 선택한 사방넷 코드
+        formChanged: false, // 폼 수정 여부
+        activeFilters: {}, // 활성화된 필터
+        charts: {
+          brand: null,
+          manufacturer: null,
+          category: null,
+          country: null 
+        },
+        // 데이터 캐시
+        cache: {
+          uniqueValues: {},
+          fieldLookup: {}
+        },
+        selectedProduct: null // 현재 선택한 제품 정보
+      };
+    
+      return {
+        // 상태 가져오기
+        get: function(prop) {
+          return _state[prop];
+        },
+        
+        // 상태 설정
+        set: function(prop, value) {
+          _state[prop] = value;
+          return value;
+        },
+        
+        // 상태 일부 업데이트
+        update: function(partialState) {
+          Object.assign(_state, partialState);
+        },
+        
+        // 상태 전체 가져오기 (읽기 전용 복사본)
+        getAll: function() {
+          return { ..._state };
+        },
+        
+        // 캐시 관리
+        cache: {
+          set: function(key, subKey, value) {
+            if (!_state.cache[key]) {
+              _state.cache[key] = {};
+            }
+            _state.cache[key][subKey] = value;
+            return value;
+          },
+          
+          get: function(key, subKey) {
+            return _state.cache[key] && _state.cache[key][subKey];
+          },
+          
+          clear: function(key) {
+            if (key) {
+              _state.cache[key] = {};
+            } else {
+              _state.cache = {};
+            }
+          }
+        }
+      };
+    })();
+    </script>

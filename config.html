@@ -1,0 +1,69 @@
+<script>
+
+// 제품 상세 보기 형식 설정 (카드 또는 리스트)
+const DetailViewSettings = {
+  viewType: 'card', // 'card' 또는 'list'
+  setViewType: function(type) {
+    this.viewType = type;
+    // 로컬 스토리지에 설정 저장
+    localStorage.setItem('product_detail_view_type', type);
+  },
+  getViewType: function() {
+    // 로컬 스토리지에서 설정 로드
+    const savedType = localStorage.getItem('product_detail_view_type');
+    if (savedType) {
+      this.viewType = savedType;
+    }
+    return this.viewType;
+  }
+};
+
+// DOM 요소 ID - 객체 리터럴로 구성
+  const DOM = {
+    views: {
+      dashboard: 'dashboard-view',
+      products: 'products-view',
+      addProduct: 'add-product-view',
+      fieldManagement: 'field-management-view',
+      accessories: 'accessories-view' // 부자재 뷰 추가
+    },
+    loading: 'loading-indicator',
+    forms: {
+      product: 'product-form',
+      field: 'field-form'
+    },
+    containers: {
+      alert: 'alert-container',
+      formFields: 'form-fields-container'
+    },
+    tables: {
+      products: 'products-table',
+      recentProducts: 'recent-products-table',
+      fields: 'fields-table',
+      accessories: 'accessories-table', // 부자재 테이블 추가
+      productAccessories: 'product-accessories-table' // 제품 상세 내 부자재 테이블 추가
+    },
+    modals: {
+      productDetails: 'product-details-modal',
+      deleteConfirm: 'delete-confirm-modal',
+      field: 'field-modal',
+      settings: 'settings-modal',
+      accessoryDetails: 'accessory-details-modal' // 부자재 상세 모달 추가
+    }
+  };
+  
+  // 앱 설정
+  const Settings = {
+    timeout: {
+      loading: 30000, // 로딩 타임아웃 (ms)
+      alert: 5000,    // 알림 표시 시간 (ms)
+      search: 300     // 검색 디바운싱 (ms)
+    },
+    storageKeys: {
+      itemsPerPage: 'itemsPerPage',
+      theme: 'theme'
+    }
+  };
+
+</script>
+

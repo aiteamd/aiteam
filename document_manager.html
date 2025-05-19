@@ -1,0 +1,1729 @@
+<script>
+
+    /**
+     * 문서 관리 모듈 - 클라이언트 사이드 (ES5 호환)
+     */
+     var DocumentManager = {
+      // 현재 선택된 사방넷 코드
+      currentSabangCode: '',
+      
+      // 문서 유형 목록
+      documentTypes: [],
+      
+      // 현재 제품 문서 목록
+      currentDocuments: [],
+      
+      /**
+       * 파일 확장자에 따라 적절한 아이콘 클래스 반환
+       * @param {string} fileName - 파일명
+       * @returns {string} FontAwesome 아이콘 클래스
+       */
+      getDocumentIcon: function(fileName) {
+        if (!fileName) return 'far fa-file text-muted';
+        
+        var extension = fileName.split('.').pop().toLowerCase();
+        
+        switch (extension) {
+          case 'pdf':
+            return 'far fa-file-pdf text-danger';
+          case 'doc':
+          case 'docx':
+            return 'far fa-file-word text-primary';
+          case 'xls':
+          case 'xlsx':
+            return 'far fa-file-excel text-success';
+          case 'ppt':
+          case 'pptx':
+            return 'far fa-file-powerpoint text-warning';
+          case 'txt':
+            return 'far fa-file-alt text-secondary';
+          case 'jpg':
+          case 'jpeg':
+          case 'png':
+          case 'gif':
+          case 'bmp':
+            return 'far fa-file-image text-info';
+          case 'zip':
+          case 'rar':
+          case '7z':
+            return 'far fa-file-archive text-secondary';
+          default:
+            return 'far fa-file text-muted';
+        }
+      },
+      
+      /**
+       * 문서 관리 초기화
+       */
+      initialize: function() {
+        var self = this;
+        
+        // 서버에서 문서 유형 목록 가져오기
+        this.loadDocumentTypes();
+        
+        // 문서 탭이 활성화될 때 문서 목록 로드
+        $(document).on('shown.bs.tab', 'button[data-bs-target="#documents-content"]', function() {
+          if (self.currentSabangCode) {
+            self.loadDocuments(self.currentSabangCode);
+          }
+        });
+        
+        // 문서 업로드 버튼 이벤트
+        $(document).on('click', '#upload-document-btn', function() {
+          self.showUploadDialog();
+        });
+        
+        // 문서 유형 관리 버튼 이벤트
+        $(document).on('click', '#manage-document-types-btn', function() {
+          self.showDocumentTypesManager();
+        });
+        
+        console.log('문서 관리 모듈 초기화 완료');
+      },
+      
+      /**
+       * 문서 유형 목록 로드
+       * @returns {Promise} 완료 시 해결되는 Promise
+       */
+      loadDocumentTypes: function() {
+        var self = this;
+        
+        return ServerAPI.getDocumentTypes()
+          .then(function(result) {
+            if (result.success) {
+              self.documentTypes = result.documentTypes;
+              console.log('문서 유형 ' + self.documentTypes.length + '개 로드 완료');
+            } else {
+              console.error('문서 유형 로드 실패:', result.message);
+              UI.showAlert('오류', '문서 유형을 로드하는 중 오류가 발생했습니다: ' + result.message, 'danger');
+            }
+            return result;
+          })
+          .catch(function(error) {
+            console.error('문서 유형 로드 오류:', error);
+            UI.showAlert('오류', '문서 유형을 로드하는 중 오류가 발생했습니다.', 'danger');
+            throw error;
+          });
+      },
+
+      
+      /**
+       * 제품 문서 목록 로드
+       * @param {string} sabangCode - 사방넷 코드
+       * @param {boolean} [isBackground=false] - 백그라운드 로드 여부
+       * @returns {Promise} 완료 시 해결되는 Promise
+       */
+      loadDocuments: function(sabangCode, isBackground) {
+        var self = this;
+          
+        // 사방넷 코드 저장
+        this.currentSabangCode = sabangCode;
+        
+        // 백그라운드 로드가 아닌 경우에만 로딩 인디케이터 표시
+        if (!isBackground) {
+          $('#documents-content').html('<div class="text-center my-4"><div class="spinner-border text-primary" role="status"></div><p class="mt-2">서류 정보를 불러오는 중...</p></div>');
+        }
+        
+        return ServerAPI.getDocumentsByProduct(sabangCode)
+          .then(function(result) {
+            if (result.success) {
+              self.currentDocuments = result.documents;
+              
+              // 백그라운드 로드가 아닌 경우에만 UI 렌더링
+              if (!isBackground) {
+                self.renderDocumentList();
+              }
+              
+              // 항상 문서 카운트 업데이트
+              self.updateDocumentCount();
+            } else {
+              if (!isBackground) {
+                $('#documents-content').html('<div class="alert alert-info"><i class="fas fa-info-circle me-2"></i>' + result.message + '</div>');
+              }
+              
+              // 빈 결과이므로 카운트 업데이트
+              self.currentDocuments = [];
+              self.updateDocumentCount();
+            }
+            return result;
+          })
+          .catch(function(error) {
+            console.error('문서 목록 로드 오류:', error);
+            
+            if (!isBackground) {
+              $('#documents-content').html('<div class="alert alert-danger"><i class="fas fa-exclamation-circle me-2"></i>서류 정보를 불러오는 중 오류가 발생했습니다: ' + error + '</div>');
+            }
+            
+            // 오류 시에도 카운트 업데이트 (0/전체 형태로)
+            self.currentDocuments = [];
+            self.updateDocumentCount();
+            
+            throw error;
+          });
+        },
+      
+      /**
+       * 문서 목록 렌더링
+       */
+      renderDocumentList: function() {
+        var self = this;
+        var $content = $('#documents-content');
+        $content.empty();
+        
+        // 제목과 설명 추가
+        var $header = $([
+          '<div class="d-flex justify-content-between align-items-center mb-3">',
+          '  <h6 class="border-bottom pb-2">',
+          '    <i class="fas fa-file-alt me-2"></i> 제품 문서',
+          '  </h6>',
+          '  <div>',
+          '    <button id="upload-document-btn" class="btn btn-primary btn-sm">',
+          '      <i class="fas fa-upload me-1"></i> 문서 업로드',
+          '    </button>',
+          '    <button id="manage-document-types-btn" class="btn btn-outline-secondary btn-sm ms-2">',
+          '      <i class="fas fa-cog"></i>',
+          '    </button>',
+          '  </div>',
+          '</div>'
+        ].join(''));
+        
+        $content.append($header);
+        
+        // 드래그 앤 드롭 안내 메시지 추가
+        var $dragDropInfo = $([
+          '<div class="drag-drop-documents-info mb-3">',
+          '  <div class="alert alert-info alert-dismissible fade show" role="alert">',
+          '    <i class="fas fa-info-circle me-2"></i>',
+          '    파일을 테이블 영역에 직접 끌어다 놓으면 해당 유형으로 바로 업로드할 수 있습니다.',
+          '    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>',
+          '  </div>',
+          '</div>'
+        ].join(''));
+        
+        $content.append($dragDropInfo);
+        
+        // 문서 유형이 없는 경우
+        if (this.documentTypes.length === 0) {
+          $content.append([
+            '<div class="alert alert-info">',
+            '  <i class="fas fa-info-circle me-2"></i>문서 유형이 정의되지 않았습니다.',
+            '  문서 유형 관리 버튼을 클릭하여 유형을 추가하세요.',
+            '</div>'
+          ].join(''));
+          return;
+        }
+        
+        // 테이블 형식으로 문서 목록 표시
+        var $documentsContainer = $('<div class="document-table-container drop-container"></div>');
+        var $tableResponsive = $('<div class="table-responsive"></div>');
+        var $table = $('<table class="table table-hover"></table>');
+        
+        // 테이블 헤더
+        var $thead = $('<thead></thead>');
+        $thead.append([
+          '<tr>',
+          '  <th>문서 유형</th>',
+          '  <th>파일명</th>',
+          '  <th>업로드일시</th>',
+          '  <th>업로드자</th>',
+          '  <th>액션</th>',
+          '</tr>'
+        ].join(''));
+        
+        // 테이블 바디
+        var $tbody = $('<tbody></tbody>');
+        
+        // 모든 문서 유형에 대해 행 생성
+        this.documentTypes.forEach(function(docType) {
+          // 해당 유형의 문서 찾기
+          var document = self.currentDocuments.find(function(doc) {
+            return doc.문서유형 === docType;
+          });
+          
+          var hasDocument = !!document;
+          var iconClass = self.getDocumentIcon(document ? document.파일명 : '');
+          
+          var $row = $('<tr></tr>');
+          $row.attr('data-doc-type', docType);
+          
+          // 문서 유형 열
+          $row.append([
+            '<td>',
+            '  <div class="d-flex align-items-center">',
+            '    <i class="' + iconClass + ' me-2"></i>',
+            '    <span title="' + docType + '">' + docType + '</span>',
+            '  </div>',
+            '</td>'
+          ].join(''));
+          
+          // 파일명 열
+          if (hasDocument) {
+            $row.append('<td>' + (document.파일명 || '(이름 없음)') + '</td>');
+          } else {
+            $row.append('<td class="text-muted">미등록</td>');
+          }
+          
+          // 업로드일시 열
+          if (hasDocument) {
+            $row.append('<td>' + self.formatDate(document.업로드일시) + '</td>');
+          } else {
+            $row.append('<td class="text-muted">-</td>');
+          }
+          
+          // 업로드자 열
+          if (hasDocument) {
+            $row.append('<td>' + (document.업로드자 || '(알 수 없음)') + '</td>');
+          } else {
+            $row.append('<td class="text-muted">-</td>');
+          }
+          
+          // 액션 열
+          var actionsHtml = '';
+          if (hasDocument) {
+            actionsHtml = [
+              '<div class="btn-group">',
+              '  <button class="btn btn-sm btn-outline-primary view-document-btn" data-file-id="' + document.파일ID + '">',
+              '    <i class="fas fa-eye"></i> 보기',
+              '  </button>',
+              '  <button class="btn btn-sm btn-outline-success download-document-btn" data-file-id="' + document.파일ID + '">',
+              '    <i class="fas fa-download"></i>',
+              '  </button>',
+              '  <button class="btn btn-sm btn-outline-danger replace-document-btn" data-doc-type="' + docType + '">',
+              '    <i class="fas fa-sync-alt"></i>',
+              '  </button>',
+              '</div>'
+            ].join('');
+          } else {
+            actionsHtml = [
+              '<button class="btn btn-sm btn-outline-primary upload-document-btn" data-doc-type="' + docType + '">',
+              '  <i class="fas fa-upload"></i> 업로드',
+              '</button>'
+            ].join('');
+          }
+          $row.append('<td>' + actionsHtml + '</td>');
+          
+          $tbody.append($row);
+        });
+        
+        $table.append($thead);
+        $table.append($tbody);
+        $tableResponsive.append($table);
+        $documentsContainer.append($tableResponsive);
+        $content.append($documentsContainer);
+        
+        // 테이블 행에 이벤트 핸들러 추가
+        $tbody.find('.view-document-btn').on('click', function(e) {
+          e.stopPropagation();
+          var fileId = $(this).data('file-id');
+          self.viewDocument(fileId);
+        });
+        
+        $tbody.find('.download-document-btn').on('click', function(e) {
+          e.stopPropagation();
+          var fileId = $(this).data('file-id');
+          self.downloadDocument(fileId);
+        });
+        
+        $tbody.find('.replace-document-btn').on('click', function(e) {
+          e.stopPropagation();
+          var docType = $(this).data('doc-type');
+          self.uploadDocument(docType);
+        });
+        
+        $tbody.find('.upload-document-btn').on('click', function(e) {
+          e.stopPropagation();
+          var docType = $(this).data('doc-type');
+          self.uploadDocument(docType);
+        });
+        
+        // 행 클릭 이벤트 (보기 또는 업로드)
+        $tbody.find('tr').on('click', function() {
+          var docType = $(this).data('doc-type');
+          var document = self.currentDocuments.find(function(doc) {
+            return doc.문서유형 === docType;
+          });
+          
+          if (document) {
+            self.viewDocument(document.파일ID);
+          } else {
+            self.uploadDocument(docType);
+          }
+        });
+        
+        // 테이블 영역에 드래그 앤 드롭 설정
+        this.setupDocumentsDragAndDrop();
+      },
+    
+      /**
+       * 문서 영역 드래그 앤 드롭 설정
+       */
+      setupDocumentsDragAndDrop: function() {
+        var self = this;
+        
+        // 전체 문서 컨테이너에 대한 드래그 이벤트 처리
+        var $dropContainer = $('.drop-container');
+        
+        if ($dropContainer.length) {
+          // 기존 이벤트 핸들러 제거 (중복 방지)
+          $dropContainer.off('dragover dragenter dragleave drop');
+          
+          // 드래그 오버 시 하이라이트
+          $dropContainer.on('dragover', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            $('table tr[data-doc-type]').addClass('drop-highlight');
+          });
+          
+          // 드래그 떠날 때 하이라이트 제거
+          $dropContainer.on('dragleave drop', function(e) {
+            $('table tr[data-doc-type]').removeClass('drop-highlight');
+          });
+        }
+        
+        // 각 문서 행에 대한 드래그 이벤트 처리
+        $('table tr[data-doc-type]').each(function() {
+          var $row = $(this);
+          var docType = $row.data('doc-type');
+          
+          // 기존 이벤트 핸들러 제거 (중복 방지)
+          $row.off('dragover dragenter dragleave drop');
+          
+          // 드래그 앤 드롭 이벤트 핸들러
+          $row
+            .on('dragover dragenter', function(e) {
+              e.preventDefault();
+              e.stopPropagation();
+              $(this).addClass('table-primary');
+              $('table tr[data-doc-type]').removeClass('drop-highlight');
+            })
+            .on('dragleave dragend', function(e) {
+              e.preventDefault();
+              e.stopPropagation();
+              $(this).removeClass('table-primary');
+            })
+            .on('drop', function(e) {
+              e.preventDefault();
+              e.stopPropagation();
+              $(this).removeClass('table-primary');
+              
+              if (e.originalEvent.dataTransfer && e.originalEvent.dataTransfer.files.length) {
+                var file = e.originalEvent.dataTransfer.files[0];
+                
+                // 파일 유형 검사 (선택적)
+                if (self.validateFileType(file)) {
+                  // 확인 대화상자 표시
+                  var confirmMessage = docType + ' 유형으로 "' + file.name + '" 파일을 업로드하시겠습니까?';
+                  
+                  if (confirm(confirmMessage)) {
+                    self.processDocumentUpload(self.currentSabangCode, docType, file);
+                  }
+                } else {
+                  UI.showAlert('경고', '지원되지 않는 파일 형식입니다.', 'warning');
+                }
+              }
+            });
+        });
+      },
+    
+      /**
+       * 파일 유형 유효성 검사
+       * @param {File} file - 검사할 파일
+       * @return {boolean} 유효성 여부
+       */
+      validateFileType: function(file) {
+        // 허용할 MIME 유형
+        var allowedTypes = [
+          // PDF
+          'application/pdf',
+          // Word
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          // Excel
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          // PowerPoint
+          'application/vnd.ms-powerpoint',
+          'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+          // 텍스트
+          'text/plain',
+          // 이미지
+          'image/jpeg',
+          'image/png',
+          'image/gif',
+          'image/bmp',
+          'image/svg+xml',
+          // 압축 파일
+          'application/zip',
+          'application/x-rar-compressed',
+          'application/x-7z-compressed'
+        ];
+        
+        // MIME 유형이 아닌 확장자로 검사하기 위한 대안
+        var fileName = file.name.toLowerCase();
+        var allowedExtensions = ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', 
+                                '.txt', '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', 
+                                '.zip', '.rar', '.7z'];
+        
+        // MIME 유형 검사
+        if (allowedTypes.includes(file.type)) {
+          return true;
+        }
+        
+        // 확장자 검사
+        return allowedExtensions.some(function(ext) {
+          return fileName.endsWith(ext);
+        });
+      },
+      
+      /**
+       * 문서 목록 렌더링
+       */
+      renderDocumentList: function() {
+        var self = this;
+        var $content = $('#documents-content');
+        $content.empty();
+        
+        // 제목과 설명 추가
+        var $header = $([
+          '<div class="d-flex justify-content-between align-items-center mb-3">',
+          '  <h6 class="border-bottom pb-2">',
+          '    <i class="fas fa-file-alt me-2"></i> 제품 문서',
+          '  </h6>',
+          '  <div>',
+          '    <button id="upload-document-btn" class="btn btn-primary btn-sm">',
+          '      <i class="fas fa-upload me-1"></i> 문서 업로드',
+          '    </button>',
+          '    <button id="manage-document-types-btn" class="btn btn-outline-secondary btn-sm ms-2">',
+          '      <i class="fas fa-cog"></i>',
+          '    </button>',
+          '  </div>',
+          '</div>'
+        ].join(''));
+        
+        $content.append($header);
+        
+        // 드래그 앤 드롭 안내 메시지 추가
+        var $dragDropInfo = $([
+          '<div class="drag-drop-documents-info mb-3">',
+          '  <div class="alert alert-info alert-dismissible fade show" role="alert">',
+          '    <i class="fas fa-info-circle me-2"></i>',
+          '    파일을 테이블 영역에 직접 끌어다 놓으면 해당 유형으로 바로 업로드할 수 있습니다.',
+          '    <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>',
+          '  </div>',
+          '</div>'
+        ].join(''));
+        
+        $content.append($dragDropInfo);
+        
+        // 문서 유형이 없는 경우
+        if (this.documentTypes.length === 0) {
+          $content.append([
+            '<div class="alert alert-info">',
+            '  <i class="fas fa-info-circle me-2"></i>문서 유형이 정의되지 않았습니다.',
+            '  문서 유형 관리 버튼을 클릭하여 유형을 추가하세요.',
+            '</div>'
+          ].join(''));
+          return;
+        }
+        
+        // 테이블 형식으로 문서 목록 표시
+        var $documentsContainer = $('<div class="document-table-container drop-container"></div>');
+        var $tableResponsive = $('<div class="table-responsive"></div>');
+        var $table = $('<table class="table table-hover"></table>');
+        
+        // 테이블 헤더
+        var $thead = $('<thead></thead>');
+        $thead.append([
+          '<tr>',
+          '  <th>문서 유형</th>',
+          '  <th>파일명</th>',
+          '  <th>업로드일시</th>',
+          '  <th>업로드자</th>',
+          '  <th>액션</th>',
+          '</tr>'
+        ].join(''));
+        
+        // 테이블 바디
+        var $tbody = $('<tbody></tbody>');
+        
+        // 모든 문서 유형에 대해 행 생성
+        this.documentTypes.forEach(function(docType) {
+          // 해당 유형의 문서 찾기
+          var document = self.currentDocuments.find(function(doc) {
+            return doc.문서유형 === docType;
+          });
+          
+          var hasDocument = !!document;
+          var iconClass = self.getDocumentIcon(document ? document.파일명 : '');
+          
+          var $row = $('<tr></tr>');
+          $row.attr('data-doc-type', docType);
+          
+          // 문서 유형 열
+          $row.append([
+            '<td>',
+            '  <div class="d-flex align-items-center">',
+            '    <i class="' + iconClass + ' me-2"></i>',
+            '    <span title="' + docType + '">' + docType + '</span>',
+            '  </div>',
+            '</td>'
+          ].join(''));
+          
+          // 파일명 열
+          if (hasDocument) {
+            $row.append('<td>' + (document.파일명 || '(이름 없음)') + '</td>');
+          } else {
+            $row.append('<td class="text-muted">미등록</td>');
+          }
+          
+          // 업로드일시 열
+          if (hasDocument) {
+            $row.append('<td>' + self.formatDate(document.업로드일시) + '</td>');
+          } else {
+            $row.append('<td class="text-muted">-</td>');
+          }
+          
+          // 업로드자 열
+          if (hasDocument) {
+            $row.append('<td>' + (document.업로드자 || '(알 수 없음)') + '</td>');
+          } else {
+            $row.append('<td class="text-muted">-</td>');
+          }
+          
+          // 액션 열
+          var actionsHtml = '';
+          if (hasDocument) {
+            actionsHtml = [
+              '<div class="btn-group">',
+              '  <button class="btn btn-sm btn-outline-primary view-document-btn" data-file-id="' + document.파일ID + '">',
+              '    <i class="fas fa-eye"></i> 보기',
+              '  </button>',
+              '  <button class="btn btn-sm btn-outline-success download-document-btn" data-file-id="' + document.파일ID + '">',
+              '    <i class="fas fa-download"></i>',
+              '  </button>',
+              '  <button class="btn btn-sm btn-outline-danger replace-document-btn" data-doc-type="' + docType + '">',
+              '    <i class="fas fa-sync-alt"></i>',
+              '  </button>',
+              '</div>'
+            ].join('');
+          } else {
+            actionsHtml = [
+              '<button class="btn btn-sm btn-outline-primary upload-document-btn" data-doc-type="' + docType + '">',
+              '  <i class="fas fa-upload"></i> 업로드',
+              '</button>'
+            ].join('');
+          }
+          $row.append('<td>' + actionsHtml + '</td>');
+          
+          $tbody.append($row);
+        });
+        
+        $table.append($thead);
+        $table.append($tbody);
+        $tableResponsive.append($table);
+        $documentsContainer.append($tableResponsive);
+        $content.append($documentsContainer);
+        
+        // 테이블 행에 이벤트 핸들러 추가
+        $tbody.find('.view-document-btn').on('click', function(e) {
+          e.stopPropagation();
+          var fileId = $(this).data('file-id');
+          self.viewDocument(fileId);
+        });
+        
+        $tbody.find('.download-document-btn').on('click', function(e) {
+          e.stopPropagation();
+          var fileId = $(this).data('file-id');
+          self.downloadDocument(fileId);
+        });
+        
+        $tbody.find('.replace-document-btn').on('click', function(e) {
+          e.stopPropagation();
+          var docType = $(this).data('doc-type');
+          self.uploadDocument(docType);
+        });
+        
+        $tbody.find('.upload-document-btn').on('click', function(e) {
+          e.stopPropagation();
+          var docType = $(this).data('doc-type');
+          self.uploadDocument(docType);
+        });
+        
+        // 행 클릭 이벤트 (보기 또는 업로드)
+        $tbody.find('tr').on('click', function() {
+          var docType = $(this).data('doc-type');
+          var document = self.currentDocuments.find(function(doc) {
+            return doc.문서유형 === docType;
+          });
+          
+          if (document) {
+            self.viewDocument(document.파일ID);
+          } else {
+            self.uploadDocument(docType);
+          }
+        });
+        
+        // 테이블 영역에 드래그 앤 드롭 설정
+        this.setupDocumentsDragAndDrop();
+      },
+    
+      /**
+       * 문서 영역 드래그 앤 드롭 설정
+       */
+      setupDocumentsDragAndDrop: function() {
+        var self = this;
+        
+        // 전체 문서 컨테이너에 대한 드래그 이벤트 처리
+        var $dropContainer = $('.drop-container');
+        
+        if ($dropContainer.length) {
+          // 기존 이벤트 핸들러 제거 (중복 방지)
+          $dropContainer.off('dragover dragenter dragleave drop');
+          
+          // 드래그 오버 시 하이라이트
+          $dropContainer.on('dragover', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            $('table tr[data-doc-type]').addClass('drop-highlight');
+          });
+          
+          // 드래그 떠날 때 하이라이트 제거
+          $dropContainer.on('dragleave drop', function(e) {
+            $('table tr[data-doc-type]').removeClass('drop-highlight');
+          });
+        }
+        
+        // 각 문서 행에 대한 드래그 이벤트 처리
+        $('table tr[data-doc-type]').each(function() {
+          var $row = $(this);
+          var docType = $row.data('doc-type');
+          
+          // 기존 이벤트 핸들러 제거 (중복 방지)
+          $row.off('dragover dragenter dragleave drop');
+          
+          // 드래그 앤 드롭 이벤트 핸들러
+          $row
+            .on('dragover dragenter', function(e) {
+              e.preventDefault();
+              e.stopPropagation();
+              $(this).addClass('table-primary');
+              $('table tr[data-doc-type]').removeClass('drop-highlight');
+            })
+            .on('dragleave dragend', function(e) {
+              e.preventDefault();
+              e.stopPropagation();
+              $(this).removeClass('table-primary');
+            })
+            .on('drop', function(e) {
+              e.preventDefault();
+              e.stopPropagation();
+              $(this).removeClass('table-primary');
+              
+              if (e.originalEvent.dataTransfer && e.originalEvent.dataTransfer.files.length) {
+                var file = e.originalEvent.dataTransfer.files[0];
+                
+                // 파일 유형 검사 (선택적)
+                if (self.validateFileType(file)) {
+                  // 확인 대화상자 표시
+                  var confirmMessage = docType + ' 유형으로 "' + file.name + '" 파일을 업로드하시겠습니까?';
+                  
+                  if (confirm(confirmMessage)) {
+                    self.processDocumentUpload(self.currentSabangCode, docType, file);
+                  }
+                } else {
+                  UI.showAlert('경고', '지원되지 않는 파일 형식입니다.', 'warning');
+                }
+              }
+            });
+        });
+      },
+      
+      /**
+       * 문서 업로드 처리
+       * @param {string} sabangCode - 사방코드
+       * @param {string} documentType - 문서 유형
+       * @param {File} file - 업로드할 파일
+       * @param {bootstrap.Modal} [modal] - 업로드 모달 (선택적)
+       */
+      processDocumentUpload: function(sabangCode, documentType, file, modal) {
+        var self = this;
+        
+        // 파일 유효성 검사
+        if (!this.isValidDocumentFile(file.name)) {
+          UI.showAlert('경고', '지원하지 않는 파일 형식입니다. 지원 파일 형식: PDF, Word, Excel, PowerPoint, 이미지 파일 등', 'warning');
+          return;
+        }
+        
+        // 업로드 진행 상태 초기화
+        var $uploadProgressContainer = $('#upload-progress-container');
+        var $uploadProgressBar = $('#upload-progress-bar');
+        var $uploadStatusText = $('#upload-status-text');
+        
+        $uploadProgressContainer.removeClass('d-none');
+        $uploadProgressBar.css('width', '0%').attr('aria-valuenow', 0);
+        $uploadStatusText.text('파일 준비 중...');
+        
+        // 파일 업로드 요청
+        ServerAPI.uploadDocument(sabangCode, documentType, file)
+          .then(function(result) {
+            if (result.success) {
+              // 업로드 성공 처리
+              UI.showAlert('성공', '문서가 성공적으로 업로드되었습니다.', 'success');
+              
+              // 모달 닫기
+              if (modal) {
+                modal.hide();
+              }
+              
+              // 문서 목록 다시 로드
+              self.loadDocuments(sabangCode);
+            } else {
+              // 업로드 실패 처리
+              UI.showAlert('오류', '문서 업로드 실패: ' + result.message, 'danger');
+            }
+            
+            // 업로드 진행 상태 초기화
+            $uploadProgressContainer.addClass('d-none');
+            $uploadProgressBar.css('width', '0%').attr('aria-valuenow', 0);
+            $uploadStatusText.text('파일 준비 중...');
+          })
+          .catch(function(error) {
+            console.error('문서 업로드 오류:', error);
+            UI.showAlert('오류', '문서 업로드 중 오류가 발생했습니다.', 'danger');
+            
+            // 업로드 진행 상태 초기화
+            $uploadProgressContainer.addClass('d-none');
+            $uploadProgressBar.css('width', '0%').attr('aria-valuenow', 0);
+            $uploadStatusText.text('파일 준비 중...');
+          });
+      },
+      
+      /**
+       * 문서 카드 생성
+       * @param {string} documentType - 문서 유형
+       * @param {Object} document - 문서 정보 (없으면 undefined)
+       * @returns {jQuery} 문서 카드 요소
+       */
+      createDocumentCard: function(documentType, document) {
+        var self = this;
+        
+        // 카드 생성
+        var $col = $('<div class="col-md-4 col-lg-3 mb-3"></div>');
+        
+        var hasDocument = document !== undefined;
+        var cardClass = hasDocument ? 'border-success' : 'border-light';
+        var iconClass = hasDocument ? 'fas fa-file-alt text-success' : 'far fa-file text-muted';
+        
+        // 카드 내용 생성
+        var cardContent = [
+          '<div class="card h-100 ' + cardClass + '" data-doc-type="' + documentType + '">',
+          '  <div class="card-body">',
+          '    <div class="d-flex align-items-center mb-2">',
+          '      <i class="' + iconClass + ' fa-2x me-2"></i>',
+          '      <h6 class="card-title mb-0 text-truncate" title="' + documentType + '">' + documentType + '</h6>',
+          '    </div>'
+        ].join('');
+        
+        if (hasDocument) {
+          cardContent += [
+            '    <p class="card-text small text-muted mb-1">',
+            '      파일명: ' + (document.파일명 || '(이름 없음)'),
+            '    </p>',
+            '    <p class="card-text small text-muted mb-1">',
+            '      업로드: ' + this.formatDate(document.업로드일시),
+            '    </p>',
+            '    <p class="card-text small text-muted">',
+            '      작성자: ' + (document.업로드자 || '(알 수 없음)'),
+            '    </p>'
+          ].join('');
+        } else {
+          cardContent += [
+            '    <p class="card-text text-muted small">',
+            '      이 유형의 문서가 아직 업로드되지 않았습니다.',
+            '    </p>'
+          ].join('');
+        }
+        
+        cardContent += '  </div>';
+        
+        // 카드 푸터 추가
+        cardContent += '<div class="card-footer bg-transparent border-top-0">';
+        
+        if (hasDocument) {
+          cardContent += [
+            '  <div class="btn-group w-100">',
+            '    <button class="btn btn-sm btn-outline-primary view-document-btn" data-file-id="' + document.파일ID + '">',
+            '      <i class="fas fa-eye"></i> 보기',
+            '    </button>',
+            '    <button class="btn btn-sm btn-outline-success download-document-btn" data-file-id="' + document.파일ID + '">',
+            '      <i class="fas fa-download"></i> 다운로드',
+            '    </button>',
+            '    <button class="btn btn-sm btn-outline-danger replace-document-btn" data-doc-type="' + documentType + '">',
+            '      <i class="fas fa-sync-alt"></i>',
+            '    </button>',
+            '  </div>'
+          ].join('');
+        } else {
+          cardContent += [
+            '  <button class="btn btn-sm btn-outline-primary w-100 upload-document-btn" data-doc-type="' + documentType + '">',
+            '    <i class="fas fa-upload me-1"></i> 업로드',
+            '  </button>'
+          ].join('');
+        }
+        
+        cardContent += [
+          '</div>',
+          '</div>'
+        ].join('');
+        
+        $col.html(cardContent);
+        
+        // 이벤트 핸들러 추가
+        var $card = $col.find('.card');
+        
+        // 문서 보기 버튼
+        $card.find('.view-document-btn').on('click', function(e) {
+          e.stopPropagation();
+          var fileId = $(this).data('file-id');
+          self.viewDocument(fileId);
+        });
+        
+        // 문서 다운로드 버튼
+        $card.find('.download-document-btn').on('click', function(e) {
+          e.stopPropagation();
+          var fileId = $(this).data('file-id');
+          self.downloadDocument(fileId);
+        });
+        
+        // 문서 교체 버튼
+        $card.find('.replace-document-btn').on('click', function(e) {
+          e.stopPropagation();
+          var docType = $(this).data('doc-type');
+          self.uploadDocument(docType);
+        });
+        
+        // 문서 업로드 버튼
+        $card.find('.upload-document-btn').on('click', function(e) {
+          e.stopPropagation();
+          var docType = $(this).data('doc-type');
+          self.uploadDocument(docType);
+        });
+        
+        // 카드 클릭 시 보기 또는 업로드 기능 실행
+        $card.on('click', function() {
+          if (hasDocument) {
+            self.viewDocument(document.파일ID);
+          } else {
+            self.uploadDocument(documentType);
+          }
+        });
+        
+        return $col;
+      },
+      
+      /**
+       * 날짜 형식화
+       * @param {string} dateString - ISO 형식 날짜 문자열
+       * @returns {string} 형식화된 날짜 문자열
+       */
+      formatDate: function(dateString) {
+        if (!dateString) return '(날짜 없음)';
+        
+        try {
+          var date = new Date(dateString);
+          return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        } catch (e) {
+          return dateString;
+        }
+      },
+      
+      /**
+       * 문서 업로드 대화상자 표시
+       * @param {string} [preselectedType] - 미리 선택할 문서 유형 (선택적)
+       */
+      showUploadDialog: function(preselectedType) {
+        var self = this;
+        
+        // 기존 모달 제거
+        $('#document-upload-modal').remove();
+        
+        // 옵션 HTML 생성
+        var optionsHtml = '<option value="">유형 선택</option>';
+        this.documentTypes.forEach(function(type) {
+          optionsHtml += '<option value="' + type + '"' + 
+            (type === preselectedType ? ' selected' : '') + '>' + type + '</option>';
+        });
+        
+        // 모달 생성 - 드래그 앤 드롭 영역과 진행 상태 바 추가
+        var $modal = $([
+          '<div class="modal fade" id="document-upload-modal" tabindex="-1" aria-hidden="true">',
+          '  <div class="modal-dialog">',
+          '    <div class="modal-content">',
+          '      <div class="modal-header">',
+          '        <h5 class="modal-title">문서 업로드</h5>',
+          '        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>',
+          '      </div>',
+          '      <div class="modal-body">',
+          '        <form id="document-upload-form">',
+          '          <div class="mb-3">',
+          '            <label for="document-type-select" class="form-label">문서 유형</label>',
+          '            <select class="form-select" id="document-type-select" required>',
+          optionsHtml,
+          '            </select>',
+          '          </div>',
+          '          <div class="mb-3">',
+          '            <label for="document-file" class="form-label">파일 선택</label>',
+          '            <div class="drag-drop-area" id="drag-drop-area">',
+          '              <div class="drag-drop-message">',
+          '                <i class="fas fa-cloud-upload-alt fa-3x mb-3"></i>',
+          '                <p>파일을 여기에 끌어다 놓거나</p>',
+          '                <label for="document-file" class="btn btn-outline-primary btn-sm mt-2">',
+          '                  파일 선택',
+          '                </label>',
+          '              </div>',
+          '              <input type="file" class="d-none" id="document-file" required>',
+          '            </div>',
+          '            <div id="file-preview" class="mt-3 d-none">',
+          '              <div class="selected-file d-flex align-items-center p-2 border rounded">',
+          '                <i class="fas fa-file me-2 text-primary"></i>',
+          '                <span id="selected-filename" class="text-truncate"></span>',
+          '                <button type="button" class="btn-close ms-auto" id="remove-file-btn" aria-label="Remove file"></button>',
+          '              </div>',
+          '            </div>',
+          '            <div class="form-text">',
+          '              지원 파일 형식: PDF, Word, Excel, PowerPoint, 이미지 파일 등',
+          '            </div>',
+          '          </div>',
+          '          <!-- 업로드 진행 상태 바 추가 -->',
+          '          <div id="upload-progress-container" class="mt-3 d-none">',
+          '            <label class="form-label">업로드 진행 상태 <span id="progress-percent">0%</span></label>',
+          '            <div class="progress">',
+          '              <div id="upload-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" ',
+          '                   role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%">',
+          '              </div>',
+          '            </div>',
+          '            <small id="upload-status-text" class="form-text text-muted">파일 준비 중...</small>',
+          '          </div>',
+          '        </form>',
+          '      </div>',
+          '      <div class="modal-footer">',
+          '        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="cancel-upload-btn">취소</button>',
+          '        <button type="button" class="btn btn-primary" id="upload-document-submit-btn">업로드</button>',
+          '      </div>',
+          '    </div>',
+          '  </div>',
+          '</div>'
+        ].join(''));
+        
+        // 모달을 DOM에 추가
+        $('body').append($modal);
+        
+        // 드래그 앤 드롭 영역 설정
+        var $dragDropArea = $('#drag-drop-area');
+        var $fileInput = $('#document-file');
+        var $filePreview = $('#file-preview');
+        var $selectedFilename = $('#selected-filename');
+        
+        // 파일 입력 변경 이벤트
+        $fileInput.on('change', function() {
+          handleFileSelection(this.files);
+        });
+        
+        // 파일 제거 버튼 이벤트
+        $('#remove-file-btn').on('click', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          clearFileSelection();
+        });
+        
+        // 드래그 앤 드롭 이벤트 핸들러
+        $dragDropArea
+          .on('dragover dragenter', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            $(this).addClass('drag-over');
+          })
+          .on('dragleave dragend drop', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            $(this).removeClass('drag-over');
+          })
+          .on('drop', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            if (e.originalEvent.dataTransfer && e.originalEvent.dataTransfer.files.length) {
+              handleFileSelection(e.originalEvent.dataTransfer.files);
+            }
+          });
+        
+        // 파일 선택 처리 함수
+        function handleFileSelection(files) {
+          if (files.length) {
+            var file = files[0];
+            $fileInput[0].files = files;
+            $selectedFilename.text(file.name);
+            $filePreview.removeClass('d-none');
+            $dragDropArea.addClass('has-file');
+            
+            // 파일 크기 표시 추가
+            var fileSize = formatFileSize(file.size);
+            $selectedFilename.html(file.name + ' <small class="text-muted">(' + fileSize + ')</small>');
+            
+            // 파일 아이콘 업데이트
+            updateFileIcon(file);
+          }
+        }
+    
+        // 파일 크기를 읽기 쉬운 형식으로 변환하는 함수
+        function formatFileSize(bytes) {
+          if (bytes === 0) return '0 Bytes';
+          
+          var k = 1024;
+          var sizes = ['Bytes', 'KB', 'MB', 'GB'];
+          var i = Math.floor(Math.log(bytes) / Math.log(k));
+          
+          return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+        
+        // 파일 선택 초기화 함수
+        function clearFileSelection() {
+          $fileInput.val('');
+          $filePreview.addClass('d-none');
+          $dragDropArea.removeClass('has-file');
+          $('#upload-progress-container').addClass('d-none');
+        }
+        
+        // 파일 유형에 따른 아이콘 업데이트
+        function updateFileIcon(file) {
+          var $fileIcon = $filePreview.find('i.fas').first();
+          var fileType = file.type;
+          
+          // 기본 아이콘
+          var iconClass = 'fa-file';
+          
+          // 파일 유형에 따른 아이콘 설정
+          if (fileType.includes('pdf')) {
+            iconClass = 'fa-file-pdf';
+          } else if (fileType.includes('word') || fileType.includes('document')) {
+            iconClass = 'fa-file-word';
+          } else if (fileType.includes('excel') || fileType.includes('sheet')) {
+            iconClass = 'fa-file-excel';
+          } else if (fileType.includes('powerpoint') || fileType.includes('presentation')) {
+            iconClass = 'fa-file-powerpoint';
+          } else if (fileType.includes('image')) {
+            iconClass = 'fa-file-image';
+          } else if (fileType.includes('text')) {
+            iconClass = 'fa-file-alt';
+          }
+          
+          // 아이콘 클래스 갱신
+          $fileIcon.removeClass().addClass('fas ' + iconClass + ' me-2 text-primary');
+        }
+        
+        // 모달 표시
+        var modal = new bootstrap.Modal($modal[0]);
+        modal.show();
+        
+        // 업로드 버튼 이벤트
+        $('#upload-document-submit-btn').on('click', function() {
+          var form = document.getElementById('document-upload-form');
+          
+          if (form.checkValidity()) {
+            var docType = $('#document-type-select').val();
+            var fileInput = document.getElementById('document-file');
+            
+            if (fileInput.files.length > 0) {
+              var file = fileInput.files[0];
+              
+              // 업로드 버튼 비활성화
+              $(this).prop('disabled', true);
+              $('#cancel-upload-btn').prop('disabled', true);
+              
+              // 진행 상태 바 표시
+              $('#upload-progress-container').removeClass('d-none');
+              
+              // 파일 업로드 진행
+              self.processDocumentUpload(self.currentSabangCode, docType, file, modal);
+            } else {
+              UI.showAlert('경고', '업로드할 파일을 선택하세요.', 'warning');
+            }
+          } else {
+            form.reportValidity();
+          }
+        });
+      },
+    
+      /**
+       * 특정 유형의 문서 업로드
+       * @param {string} documentType - 문서 유형
+       */
+      uploadDocument: function(documentType) {
+        this.showUploadDialog(documentType);
+      },
+      
+      /**
+       * 문서 보기
+       * @param {string} fileId - 파일 ID
+       */
+      viewDocument: function(fileId) {
+        // 구글 드라이브 파일 뷰어 URL로 새 탭 열기
+        var viewerUrl = 'https://drive.google.com/file/d/' + fileId + '/view';
+        window.open(viewerUrl, '_blank');
+      },
+      
+      /**
+       * 문서 다운로드
+       * @param {string} fileId - 파일 ID
+       */
+      downloadDocument: function(fileId) {
+        var self = this;
+        UI.showLoading();
+        
+        ServerAPI.getDocumentDownloadUrl(fileId)
+          .then(function(result) {
+            if (result.success) {
+              // 새 탭에서 다운로드 URL 열기
+              window.open(result.downloadUrl, '_blank');
+              UI.hideLoading();
+            } else {
+              UI.showAlert('오류', '다운로드 URL 생성 실패: ' + result.message, 'danger');
+              UI.hideLoading();
+            }
+          })
+          .catch(function(error) {
+            console.error('문서 다운로드 오류:', error);
+            UI.showAlert('오류', '문서 다운로드 중 오류가 발생했습니다.', 'danger');
+            UI.hideLoading();
+          });
+      },
+      
+      /**
+       * 문서 유형 관리자 표시
+       */
+      showDocumentTypesManager: function() {
+        var self = this;
+        
+        // 기존 모달 제거
+        $('#document-types-modal').remove();
+        
+        // 문서 유형 목록 HTML 생성
+        var docTypesRows = '';
+        this.documentTypes.forEach(function(type) {
+          docTypesRows += [
+            '<tr>',
+            '  <td>' + type + '</td>',
+            '  <td>',
+            '    <div class="form-check form-switch">',
+            '      <input class="form-check-input doc-type-required" type="checkbox" data-doc-type="' + type + '">',
+            '    </div>',
+            '  </td>',
+            '  <td>',
+            '    <button class="btn btn-sm btn-danger delete-doc-type-btn" data-doc-type="' + type + '">',
+            '      <i class="fas fa-trash"></i>',
+            '    </button>',
+            '  </td>',
+            '</tr>'
+          ].join('');
+        });
+        
+        // 모달 생성
+        var $modal = $([
+          '<div class="modal fade" id="document-types-modal" tabindex="-1" aria-hidden="true">',
+          '  <div class="modal-dialog modal-lg">',
+          '    <div class="modal-content">',
+          '      <div class="modal-header">',
+          '        <h5 class="modal-title">문서 유형 관리</h5>',
+          '        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>',
+          '      </div>',
+          '      <div class="modal-body">',
+          '        <div class="d-flex justify-content-between mb-3">',
+          '          <h6>문서 유형 목록</h6>',
+          '          <button class="btn btn-sm btn-primary" id="add-document-type-btn">',
+          '            <i class="fas fa-plus"></i> 새 유형 추가',
+          '          </button>',
+          '        </div>',
+          '        ',
+          '        <div class="table-responsive">',
+          '          <table class="table table-striped table-hover">',
+          '            <thead>',
+          '              <tr>',
+          '                <th width="60%">문서 유형</th>',
+          '                <th width="20%">필수 여부</th>',
+          '                <th width="20%">액션</th>',
+          '              </tr>',
+          '            </thead>',
+          '            <tbody id="document-types-table">',
+          docTypesRows,
+          '            </tbody>',
+          '          </table>',
+          '        </div>',
+          '      </div>',
+          '      <div class="modal-footer">',
+          '        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">닫기</button>',
+          '      </div>',
+          '    </div>',
+          '  </div>',
+          '</div>'
+        ].join(''));
+        
+        // 모달을 DOM에 추가
+        $('body').append($modal);
+        
+        // 새 유형 추가 버튼 이벤트
+        $('#add-document-type-btn').on('click', function() {
+          self.showAddDocumentTypeDialog();
+        });
+        
+        // 유형 삭제 버튼 이벤트
+        $('.delete-doc-type-btn').on('click', function(e) {
+          var docType = $(this).data('doc-type');
+          self.deleteDocumentType(docType);
+        });
+        
+        // 모달 표시
+        var modal = new bootstrap.Modal($modal[0]);
+        modal.show();
+      },
+      
+      /**
+       * 새 문서 유형 추가 대화상자 표시
+       */
+      showAddDocumentTypeDialog: function() {
+        var self = this;
+        
+        // 기존 모달 제거
+        $('#add-document-type-modal').remove();
+        
+        // 모달 생성
+        var $modal = $([
+          '<div class="modal fade" id="add-document-type-modal" tabindex="-1" aria-hidden="true">',
+          '  <div class="modal-dialog">',
+          '    <div class="modal-content">',
+          '      <div class="modal-header">',
+          '        <h5 class="modal-title">새 문서 유형 추가</h5>',
+          '        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>',
+          '      </div>',
+          '      <div class="modal-body">',
+          '        <form id="add-document-type-form">',
+          '          <div class="mb-3">',
+          '            <label for="new-document-type" class="form-label">문서 유형 이름</label>',
+          '            <input type="text" class="form-control" id="new-document-type" required>',
+          '          </div>',
+          '          <div class="mb-3">',
+          '            <label for="document-type-description" class="form-label">설명 (선택사항)</label>',
+          '            <textarea class="form-control" id="document-type-description" rows="2"></textarea>',
+          '          </div>',
+          '          <div class="form-check">',
+          '            <input class="form-check-input" type="checkbox" id="document-type-required">',
+          '            <label class="form-check-label" for="document-type-required">',
+          '              필수 문서 여부',
+          '            </label>',
+          '          </div>',
+          '        </form>',
+          '      </div>',
+          '      <div class="modal-footer">',
+          '        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>',
+          '        <button type="button" class="btn btn-primary" id="save-document-type-btn">저장</button>',
+          '      </div>',
+          '    </div>',
+          '  </div>',
+          '</div>'
+        ].join(''));
+        
+        // 모달을 DOM에 추가
+        $('body').append($modal);
+        
+        // 저장 버튼 이벤트
+        $('#save-document-type-btn').on('click', function() {
+          var form = document.getElementById('add-document-type-form');
+          
+          if (form.checkValidity()) {
+            var newType = $('#new-document-type').val().trim();
+            var description = $('#document-type-description').val().trim();
+            var required = $('#document-type-required').is(':checked');
+            
+            self.addDocumentType(newType, description, required);
+            $('#add-document-type-modal').modal('hide');
+          } else {
+            form.reportValidity();
+          }
+        });
+        
+        // 모달 표시
+        var modal = new bootstrap.Modal($modal[0]);
+        modal.show();
+        
+        // 첫 번째 필드에 포커스
+        $('#new-document-type').focus();
+      },
+      
+      /**
+       * 새 문서 유형 추가
+       * @param {string} documentType - 문서 유형
+       * @param {string} description - 설명
+       * @param {boolean} required - 필수 여부
+       */
+      addDocumentType: function(documentType, description, required) {
+        var self = this;
+        UI.showLoading();
+        
+        ServerAPI.addDocumentType(documentType, description, required)
+          .then(function(result) {
+            if (result.success) {
+              UI.showAlert('성공', '새 문서 유형이 추가되었습니다.', 'success');
+              
+              // 문서 유형 목록 다시 로드
+              self.loadDocumentTypes().then(function() {
+                // 문서 유형 관리자 다시 표시
+                $('#document-types-modal').modal('hide');
+                self.showDocumentTypesManager();
+                
+                // 문서 목록 다시 렌더링
+                if (self.currentSabangCode) {
+                  self.renderDocumentList();
+                }
+              });
+            } else {
+              UI.showAlert('오류', '문서 유형 추가 실패: ' + result.message, 'danger');
+            }
+            UI.hideLoading();
+          })
+          .catch(function(error) {
+            console.error('문서 유형 추가 오류:', error);
+            UI.showAlert('오류', '문서 유형을 추가하는 중 오류가 발생했습니다.', 'danger');
+            UI.hideLoading();
+          });
+      },
+      
+      /**
+       * 문서 유형 삭제
+       * @param {string} documentType - 삭제할 문서 유형
+       */
+      deleteDocumentType: function(documentType) {
+        var self = this;
+        
+        if (confirm('정말로 "' + documentType + '" 문서 유형을 삭제하시겠습니까?')) {
+          UI.showLoading();
+          
+          ServerAPI.deleteDocumentType(documentType)
+            .then(function(result) {
+              if (result.success) {
+                UI.showAlert('성공', '문서 유형이 삭제되었습니다.', 'success');
+                
+                // 문서 유형 목록 다시 로드
+                self.loadDocumentTypes().then(function() {
+                  // 문서 유형 관리자 다시 표시
+                  $('#document-types-modal').modal('hide');
+                  self.showDocumentTypesManager();
+                  
+                  // 문서 목록 다시 렌더링
+                  if (self.currentSabangCode) {
+                    self.renderDocumentList();
+                  }
+                });
+              } else {
+                UI.showAlert('오류', '문서 유형 삭제 실패: ' + result.message, 'danger');
+              }
+              UI.hideLoading();
+            })
+            .catch(function(error) {
+              console.error('문서 유형 삭제 오류:', error);
+              UI.showAlert('오류', '문서 유형을 삭제하는 중 오류가 발생했습니다.', 'danger');
+              UI.hideLoading();
+            });
+        }
+      },
+    
+      /**
+       * 문서 카운트 업데이트
+       * 현재 업로드된 문서 수 / 전체 문서 유형 수 형식으로 표시
+       */
+      updateDocumentCount: function() {
+        // 현재 업로드된 문서 개수 계산
+        var uploadedCount = this.currentDocuments ? this.currentDocuments.length : 0;
+        // 전체 문서 유형 개수
+        var totalTypes = this.documentTypes ? this.documentTypes.length : 0;
+        
+        // 문서 카운트 배지 업데이트
+        $('#documents-count').text(uploadedCount + '/' + totalTypes);
+      },
+    
+      // 2. loadDocuments 메서드 수정 (기존 코드의 적절한 위치에 updateDocumentCount 호출 추가)
+      loadDocuments: function(sabangCode) {
+        var self = this;
+        
+        // 사방넷 코드 저장
+        this.currentSabangCode = sabangCode;
+        
+        // 로딩 인디케이터 표시
+        $('#documents-content').html('<div class="text-center my-4"><div class="spinner-border text-primary" role="status"></div><p class="mt-2">문서 정보를 불러오는 중...</p></div>');
+        
+        return ServerAPI.getDocumentsByProduct(sabangCode)
+          .then(function(result) {
+            if (result.success) {
+              self.currentDocuments = result.documents;
+              self.renderDocumentList();
+              
+              // 문서 카운트 업데이트 - 여기에 추가
+              self.updateDocumentCount();
+            } else {
+              $('#documents-content').html('<div class="alert alert-info"><i class="fas fa-info-circle me-2"></i>' + result.message + '</div>');
+              
+              // 빈 결과이므로 카운트 업데이트
+              self.currentDocuments = [];
+              self.updateDocumentCount();
+            }
+            return result;
+          })
+          .catch(function(error) {
+            console.error('문서 목록 로드 오류:', error);
+            $('#documents-content').html('<div class="alert alert-danger"><i class="fas fa-exclamation-circle me-2"></i>문서 정보를 불러오는 중 오류가 발생했습니다: ' + error + '</div>');
+            
+            // 오류 시에도 카운트 업데이트 (0/전체 형태로)
+            self.currentDocuments = [];
+            self.updateDocumentCount();
+            
+            throw error;
+          });
+      },
+    
+      // 3. loadDocumentTypes 메서드 수정 (문서 유형 로드 후 카운트 업데이트)
+      loadDocumentTypes: function() {
+        var self = this;
+        
+        return ServerAPI.getDocumentTypes()
+          .then(function(result) {
+            if (result.success) {
+              self.documentTypes = result.documentTypes;
+              console.log('문서 유형 ' + self.documentTypes.length + '개 로드 완료');
+              
+              // 문서 유형이 로드된 후 카운트 업데이트
+              self.updateDocumentCount();
+            } else {
+              console.error('문서 유형 로드 실패:', result.message);
+              UI.showAlert('오류', '문서 유형을 로드하는 중 오류가 발생했습니다: ' + result.message, 'danger');
+            }
+            return result;
+          })
+          .catch(function(error) {
+            console.error('문서 유형 로드 오류:', error);
+            UI.showAlert('오류', '문서 유형을 로드하는 중 오류가 발생했습니다.', 'danger');
+            throw error;
+          });
+      },
+    
+      /**
+       * 문서 파일 업로드를 처리하는 메서드
+       * (Base64 -> encodeURIComponent 방식 적용)
+       *
+       * @param {string} sabangCode - 사방넷 코드
+       * @param {string} documentType - 문서 유형 (예: "완제품 SDS" 등)
+       * @param {File} file - 업로드할 File 객체
+       * @param {Object} [modal] - 업로드 모달(bootstrap.Modal) 인스턴스 (선택적)
+       */
+      processDocumentUpload: function(sabangCode, documentType, file, modal) {
+        var self = this;
+    
+        // 진행 상태용 DOM
+        var $progressBar = $('#upload-progress-bar');
+        var $progressPercent = $('#progress-percent');
+        var $statusText = $('#upload-status-text');
+    
+        // 초기 진행 상태
+        $progressBar.css('width', '0%').attr('aria-valuenow', 0)
+                    .removeClass('bg-danger bg-success')
+                    .addClass('progress-bar-striped progress-bar-animated bg-primary');
+        $progressPercent.text('0%');
+        $statusText.text('파일 준비 중...');
+    
+        // FileReader로 파일을 Data URL (base64)로 읽기
+        var reader = new FileReader();
+    
+        // 파일 읽기 진행도
+        reader.onprogress = function(e) {
+          if (e.lengthComputable) {
+            var progress = Math.round((e.loaded / e.total) * 50);
+            $progressBar.css('width', progress + '%').attr('aria-valuenow', progress);
+            $progressPercent.text(progress + '%');
+            $statusText.text('파일 읽는 중... ' + progress + '%');
+          }
+        };
+    
+        // 파일 읽기 오류
+        reader.onerror = function(error) {
+          $progressBar.removeClass('progress-bar-animated progress-bar-striped bg-primary')
+                      .addClass('bg-danger')
+                      .css('width', '100%').attr('aria-valuenow', 100);
+          $progressPercent.text('100%');
+          $statusText.text('파일 읽기 오류가 발생했습니다.');
+    
+          $('#upload-document-submit-btn').prop('disabled', false);
+          $('#cancel-upload-btn').prop('disabled', false);
+    
+          console.error('파일 읽기 오류:', error);
+          UI.showAlert('오류', '파일을 읽는 중 오류가 발생했습니다.', 'danger');
+        };
+    
+        // 파일 읽기 완료
+        reader.onload = function(e) {
+          // Data URL (ex: "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,UEsDBBQABg...")
+          var dataUrl = e.target.result;
+          // 콤마 뒤의 순수 Base64 부분만 추출
+          var base64Data = dataUrl.split(',')[1] || '';
+    
+          // **여기서** encodeURIComponent 처리 → 서버에서 decodeURIComponent 해야 함
+          var safeBase64 = encodeURIComponent(base64Data);
+    
+          $statusText.text('서버에 업로드 중...');
+          $progressBar.css('width', '50%').attr('aria-valuenow', 50);
+          $progressPercent.text('50%');
+    
+          // 예상 업로드 시간에 따른 가짜 진행도(50%→95%)
+          var startTime = Date.now();
+          var fileSize = file.size;
+          var estimatedTimeMs = calculateEstimatedUploadTime(fileSize);
+          var updateInterval = estimatedTimeMs / 50;
+          var currentProgress = 50;
+          var targetProgress = 95;
+    
+          var progressInterval = setInterval(function() {
+            if (currentProgress < targetProgress) {
+              var step = 0.5 + 0.5 * Math.pow((targetProgress - currentProgress) / targetProgress, 2);
+              currentProgress += step;
+    
+              $progressBar.css('width', currentProgress + '%').attr('aria-valuenow', currentProgress);
+              $progressPercent.text(Math.round(currentProgress) + '%');
+    
+              var elapsedMs = Date.now() - startTime;
+              var remainingTimeStr = calculateRemainingTime(elapsedMs, currentProgress - 50, targetProgress - 50);
+              $statusText.text('서버에 업로드 중... ' + remainingTimeStr);
+            } else {
+              clearInterval(progressInterval);
+            }
+          }, updateInterval / 50);
+    
+          // **서버 API 호출**: safeBase64(= encodeURIComponent(base64Data))를 전달
+          ServerAPI.uploadDocumentFile(sabangCode, documentType, file.name, safeBase64)
+            .then(function(result) {
+              clearInterval(progressInterval);
+    
+              if (result.success) {
+                $progressBar.removeClass('progress-bar-animated')
+                            .css('width', '100%').attr('aria-valuenow', 100);
+                $progressPercent.text('100%');
+                $statusText.text('업로드 완료!');
+                $progressBar.removeClass('bg-primary').addClass('bg-success');
+    
+                setTimeout(function() {
+                  if (modal) {
+                    modal.hide();
+                  }
+                  UI.showAlert('성공', '문서 업로드를 완료했습니다.', 'success');
+                  self.loadDocuments(sabangCode); // 문서 목록 갱신
+                }, 1000);
+              } else {
+                // 실패
+                $progressBar.removeClass('progress-bar-animated progress-bar-striped bg-primary')
+                            .addClass('bg-danger')
+                            .css('width', '100%').attr('aria-valuenow', 100);
+                $statusText.text('업로드 실패: ' + result.message);
+    
+                $('#upload-document-submit-btn').prop('disabled', false);
+                $('#cancel-upload-btn').prop('disabled', false);
+    
+                UI.showAlert('오류', '문서 업로드 실패: ' + result.message, 'danger');
+              }
+            })
+            .catch(function(error) {
+              clearInterval(progressInterval);
+    
+              $progressBar.removeClass('progress-bar-animated progress-bar-striped bg-primary')
+                          .addClass('bg-danger')
+                          .css('width', '100%').attr('aria-valuenow', 100);
+              $statusText.text('업로드 중 오류가 발생했습니다.');
+    
+              $('#upload-document-submit-btn').prop('disabled', false);
+              $('#cancel-upload-btn').prop('disabled', false);
+    
+              console.error('문서 업로드 오류:', error);
+              UI.showAlert('오류', '문서 업로드 중 오류가 발생했습니다.', 'danger');
+            });
+        };
+    
+        // FileReader로 파일 -> Data URL 읽기 시작
+        reader.readAsDataURL(file);
+    
+        /**
+         * 파일 크기에 따른 예상 업로드 시간(밀리초) 계산 - 예시
+         */
+        function calculateEstimatedUploadTime(fileSize) {
+          var baseUploadSpeed = 500 * 1024; // 500KB/s
+          var adjustedSpeed = baseUploadSpeed;
+    
+          if (fileSize > 10 * 1024 * 1024) {
+            adjustedSpeed = baseUploadSpeed * 0.7;
+          } else if (fileSize > 5 * 1024 * 1024) {
+            adjustedSpeed = baseUploadSpeed * 0.8;
+          } else if (fileSize > 1 * 1024 * 1024) {
+            adjustedSpeed = baseUploadSpeed * 0.9;
+          }
+    
+          var estimatedTimeSec = fileSize / adjustedSpeed;
+          estimatedTimeSec = Math.max(2, Math.min(30, estimatedTimeSec));
+          return estimatedTimeSec * 1000;
+        }
+    
+        /**
+         * 남은 시간 추정 - 예시 로직
+         */
+        function calculateRemainingTime(elapsedMs, currentProgress, totalProgress) {
+          if (currentProgress <= 0) return '';
+          var ratio = currentProgress / totalProgress;
+          var totalMs = elapsedMs / ratio;
+          var remainMs = totalMs - elapsedMs;
+          remainMs = Math.min(remainMs, 30000);
+    
+          if (remainMs < 1000) {
+            return '곧 완료됩니다';
+          } else if (remainMs < 60000) {
+            return '약 ' + Math.ceil(remainMs / 1000) + '초 남음';
+          } else {
+            return '약 ' + Math.ceil(remainMs / 60000) + '분 남음';
+          }
+        }
+      },
+    
+    
+    
+      /**
+       * 특정 유형의 문서 업로드
+       * @param {string} documentType - 문서 유형
+       */
+      uploadDocument: function(documentType) {
+        this.showUploadDialog(documentType);
+      }
+    };
+
+    /**
+     * 문서 탭 카운터 업데이트 - 로드된 문서 정보 기반으로 카운트 표시
+     */
+     function updateDocumentTabCounter() {
+      // 현재 업로드된 문서 개수 계산
+      const uploadedCount = DocumentManager.currentDocuments ? DocumentManager.currentDocuments.length : 0;
+      // 전체 문서 유형 개수
+      const totalTypes = DocumentManager.documentTypes ? DocumentManager.documentTypes.length : 0;
+      
+      // 문서 카운트 배지 업데이트
+      $('#documents-count').text(uploadedCount + '/' + totalTypes);
+      
+      // 문서 탭 배지 스타일링 (업로드된 문서가 있으면 강조 표시)
+      const $documentsTabBadge = $('#documents-count');
+      if (uploadedCount > 0) {
+        $documentsTabBadge.removeClass('bg-light text-dark').addClass('bg-primary text-white');
+      } else {
+        $documentsTabBadge.removeClass('bg-primary text-white').addClass('bg-light text-dark');
+      }
+    }
+
+</script>

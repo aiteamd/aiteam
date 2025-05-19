@@ -1,0 +1,1495 @@
+<script>
+
+    /**
+     * 제품의 부자재 정보 로드 (제품 상세 모달용 - 수량 포함)
+     * @param {string} sabangCode - 사방넷 코드
+     */
+    function loadProductAccessories(sabangCode) {
+      console.log("제품 상세 내 부자재 정보 로드 시작: 사방넷 코드", sabangCode);
+      AppState.set('currentSabangCodeForModal', sabangCode); // 현재 모달의 사방넷 코드 저장
+      
+      const $accessoriesTableBody = $('#product-accessories-table'); // tbody 선택
+      $accessoriesTableBody.html('<tr><td colspan="4" class="text-center">부자재 정보 로딩 중...</td></tr>'); // Colspan 4로 수정
+      
+      ServerAPI.getAccessoriesBySabangCode(sabangCode)
+        .then(result => {
+          console.log("제품 상세 내 부자재 정보 로드 결과:", result);
+          
+          if (result.success) {
+            // 헤더 정보 디버깅
+            console.log("부자재 정보 헤더:", result.headers);
+            console.log("부자재 데이터 수:", result.data.length);
+            
+            if (result.data.length > 0) {
+              console.log("첫 번째 부자재 데이터:", result.data[0]);
+            }
+            
+            renderProductAccessoriesTable(result.headers, result.data);
+            $('#accessories-count').text(result.data.length); 
+          } else {
+            $accessoriesTableBody.html('<tr><td colspan="4" class="text-center">' + result.message + '</td></tr>'); // Colspan 4
+            $('#accessories-count').text('0');
+          }
+        })
+        .catch(error => {
+          console.error("제품 상세 내 부자재 정보 로드 오류:", error);
+          $accessoriesTableBody.html('<tr><td colspan="4" class="text-center">오류가 발생했습니다: ' + error + '</td></tr>'); // Colspan 4
+          $('#accessories-count').text('0');
+        });
+    }
+    
+    /**
+     * 제품 부자재 테이블 렌더링 (제품 상세 모달용 - 수량 조회 전용)
+     * @param {Array} headers - 헤더 배열 (['부자재코드', '부자재명(한)', '수량'])
+     * @param {Array} data - 부자재 데이터 배열 (객체 배열)
+     */
+    function renderProductAccessoriesTable(headers, data) {
+      console.log("제품 상세 내 부자재 테이블 렌더링 (조회 전용): 데이터", data.length, "개");
+      
+      // 테이블 헤더 동적 업데이트
+      const $tableHead = $('#product-accessories-table').closest('table').find('thead tr');
+      $tableHead.empty(); // 기존 헤더 제거
+      
+      // 서버에서 받은 헤더 추가
+      headers.forEach(header => {
+        $tableHead.append(`<th>${header}</th>`);
+      });
+      
+      // 마지막에 액션 헤더 추가
+      $tableHead.append(`<th>액션</th>`);
+      
+      const $tableBody = $('#product-accessories-table'); // tbody 선택
+      const currentSabangCode = AppState.get('currentSabangCodeForModal'); // 저장된 사방넷 코드 가져오기
+
+      if (!currentSabangCode) {
+          console.error("테이블 렌더링 실패: 현재 제품의 사방넷 코드를 알 수 없습니다.");
+          $tableBody.html('<tr><td colspan="4" class="text-center">오류: 제품 코드를 식별할 수 없습니다.</td></tr>');
+          return;
+      }
+
+      if (data.length === 0) {
+        $tableBody.html(`<tr><td colspan="${headers.length + 1}" class="text-center">부자재 정보가 없습니다.</td></tr>`); // 헤더 개수 + 액션 컬럼
+        return;
+      }
+
+      const fragment = document.createDocumentFragment();
+      data.forEach((item, idx) => {
+        const accessoryCode = item['부자재코드'] || '-';
+        const accessoryName = item['부자재명(한)'] || '-';
+        const quantity = item['수량'] !== undefined ? item['수량'] : 0; // 수량 가져오기
+
+        console.log(`부자재 항목 ${idx+1}: 코드=${accessoryCode}, 이름=${accessoryName}, 수량=${quantity}`);
+
+        const $row = $(document.createElement('tr'));
+        $row.append(`<td><span class="badge bg-light text-dark">${accessoryCode}</span></td>`);
+        $row.append(`<td>${accessoryName}</td>`);
+
+        // 수량 표시 (텍스트)
+        $row.append(`<td>${quantity}</td>`); // input 대신 텍스트로 표시
+
+        // 액션 버튼 (상세보기)
+        const $actionsCell = $(document.createElement('td'));
+        $actionsCell.html(`
+          <button class="btn btn-sm btn-outline-info view-master-accessory-from-product-btn" data-code="${accessoryCode}" title="부자재 상세 정보 보기">
+            <i class="fas fa-eye"></i>
+          </button>
+        `);
+        $row.append($actionsCell);
+
+        fragment.appendChild($row[0]);
+      });
+
+      $tableBody.empty().append(fragment);
+
+      // 수량 업데이트 이벤트 리스너는 더 이상 필요 없음
+    }
+
+    /**
+     * 통합된 부자재 뷰 데이터 로드 (마스터 + 사용 정보)
+     */
+    function loadAccessoriesViewData() {
+      UI.showLoading();
+      
+      // 제품 헤더와 데이터가 로드되었는지 확인
+      const productHeaders = AppState.get('headers');
+      const productData = AppState.get('productData');
+      
+      // 헤더나 데이터가 없으면 먼저 제품 데이터 로드
+      const loadProductDataIfNeeded = (!productHeaders || !productData) 
+        ? DataManager.loadAllProductData()
+        : Promise.resolve({ success: true, message: "제품 데이터가 이미 로드되어 있습니다." });
+      
+      // 제품 데이터 로드(필요시) 후 부자재 정보 로드
+      loadProductDataIfNeeded
+        .then(() => {
+          // 제품 데이터 상태 확인
+          console.log("부자재 로드 전 제품 데이터 상태:");
+          console.log("- 제품 헤더:", AppState.get('headers'));
+          console.log("- 제품 데이터:", AppState.get('productData') ? `${AppState.get('productData').length}개 항목` : '없음');
+          
+          return Promise.all([
+            ServerAPI.getAllAccessoriesMasterData(),
+            ServerAPI.getAllAccessoriesData() // 제품-부자재 연결 정보
+          ]);
+        })
+        .then(([masterResult, usageResult]) => {
+          let masterDataLoaded = false;
+          
+          if (masterResult.success) {
+            AppState.set('accessoriesMasterHeaders', masterResult.headers);
+            AppState.set('accessoriesMasterData', masterResult.data);
+            AppState.set('accessoriesMasterCurrentPage', 1);
+            masterDataLoaded = true;
+            // 헤더 렌더링 호출 (데이터 로드 성공 시 한 번만)
+            renderAccessoriesViewHeader(masterResult.headers);
+          } else {
+            UI.showAlert('경고', '부자재 마스터 데이터 로드 실패: ' + masterResult.message, 'warning');
+            $('#accessories-master-table').html(
+              '<tr><td colspan="4" class="text-center">마스터 데이터를 불러올 수 없습니다.</td></tr>' // 기본 colspan
+            );
+          }
+          
+          // 사용 데이터 처리 (로드 실패해도 진행)
+          if (usageResult.success) {
+            AppState.set('accessoriesUsageHeaders', usageResult.headers);
+            AppState.set('accessoriesUsageData', usageResult.data);
+          } else {
+            UI.showAlert('경고', '부자재 사용 정보 로드 실패: ' + usageResult.message, 'warning');
+            AppState.set('accessoriesUsageData', []); 
+          }
+          
+          if (masterDataLoaded) {
+            renderAccessoriesViewTable(); // 테이블 내용 렌더링
+            UI.showAlert('성공', '부자재 데이터가 로드되었습니다.', 'success');
+          } else {
+            // 헤더 렌더링 함수가 호출되지 않았을 경우 기본 colspan 설정
+            const defaultColspan = $('#accessories-master-table').prev('thead').find('th').length || 4;
+            $('#accessories-master-table').find('td[colspan]').attr('colspan', defaultColspan);
+          }
+            
+            UI.hideLoading();
+          })
+          .catch(error => {
+            UI.showAlert('오류', '부자재 데이터를 불러오는 중 오류가 발생했습니다: ' + error, 'danger');
+            const defaultColspan = $('#accessories-master-table').prev('thead').find('th').length || 4;
+            $('#accessories-master-table').html(
+              `<tr><td colspan="${defaultColspan}" class="text-center">데이터를 불러오는 중 오류 발생.</td></tr>`
+            );
+            UI.hideLoading();
+          });
+    }
+    
+    /**
+     * 동적 테이블 헤더 렌더링
+     * @param {string[]} headers - 전체 헤더 목록
+     */
+    function renderAccessoriesViewHeader(headers) {
+      const $theadTr = $('#accessories-view thead tr');
+      const coreHeaders = ['부자재코드', '부자재명(한)', '사용 제품 수', '액션']; // 고정 헤더
+      const dynamicHeaders = headers.filter(h => !coreHeaders.includes(h));
+      
+      // 기존 동적 헤더 제거 (재렌더링 대비)
+      $theadTr.find('th.dynamic-header').remove();
+      
+      // 헤더 가시성 설정 가져오기
+      const headerVisibility = AppState.get('accessoriesHeaderVisibility') || {};
+      
+      // 헤더 가시성 설정이 없으면 초기화
+      if (Object.keys(headerVisibility).length === 0) {
+        // 초기값으로 모든 헤더 보이기
+        dynamicHeaders.forEach(header => {
+          headerVisibility[header] = true;
+        });
+        AppState.set('accessoriesHeaderVisibility', headerVisibility);
+      }
+      
+      const $insertBefore = $theadTr.find('th:contains("사용 제품 수")'); // 삽입 위치 기준점
+      const fragment = document.createDocumentFragment();
+      
+      // 가시성이 true인 동적 헤더만 추가
+      dynamicHeaders.forEach(header => {
+        // 헤더 가시성이 설정되지 않았거나 true인 경우에만 표시
+        if (headerVisibility[header] !== false) {
+          const $th = $(document.createElement('th')).addClass('dynamic-header').text(header);
+          fragment.appendChild($th[0]);
+        }
+      });
+      
+      $insertBefore.before(fragment);
+
+      // AppState에 동적 헤더 정보 저장 (렌더링 시 사용)
+      // 이 부분을 수정하여 가시성 정보도 함께 저장
+      AppState.set('dynamicAccessoryHeaders', dynamicHeaders.map(name => ({ 
+        name, 
+        index: headers.indexOf(name),
+        visible: headerVisibility[name] !== false // 가시성 정보 추가
+      })));
+
+      // Colspan 업데이트 - 표시되는 헤더 수에 따라 계산
+      const visibleDynamicHeaderCount = dynamicHeaders.filter(h => headerVisibility[h] !== false).length;
+      const totalColumns = coreHeaders.length + visibleDynamicHeaderCount;
+      $('#accessories-master-table').find('td[colspan]').attr('colspan', totalColumns);
+      console.log("동적 헤더 렌더링 완료, 총 컬럼 수:", totalColumns);
+      
+      // 새로고침 버튼 위치에 설정 버튼 추가
+      // 먼저 기존 새로고침 버튼 제거
+      $('#accessories-master-refresh-button').remove();
+      
+      // 그 위치에 설정 버튼 추가
+      const $refreshButtonContainer = $('#accessories-view .card-body .row .col-md-4.text-end');
+      if ($refreshButtonContainer.find('.header-settings-btn').length === 0) {
+        const $settingsBtn = $(document.createElement('button'))
+          .addClass('btn btn-secondary header-settings-btn')
+          .attr('title', '컬럼 설정')
+          .html('<i class="fas fa-cog"></i> 컬럼 설정')
+          .on('click', showHeaderSettingsModal);
+        $refreshButtonContainer.html('').append($settingsBtn);
+      }
+    }
+    
+    /**
+     * 통합된 부자재 테이블 렌더링 (마스터 정보 + 사용 제품 수 + 동적 컬럼)
+     */
+    function renderAccessoriesViewTable() {
+      const $tableBody = $('#accessories-master-table');
+      const accessoriesMasterData = AppState.get('accessoriesMasterData') || [];
+      const accessoriesUsageData = AppState.get('accessoriesUsageData') || [];
+      const usageHeaders = AppState.get('accessoriesUsageHeaders') || [];
+      const masterHeaders = AppState.get('accessoriesMasterHeaders') || [];
+      const dynamicHeadersInfo = AppState.get('dynamicAccessoryHeaders') || []; // 동적 헤더 이름 및 인덱스
+      const totalColumns = $('#accessories-master-table').prev('thead').find('th').length; // 헤더에서 총 컬럼 수 계산
+      
+      $tableBody.empty();
+      
+      if (accessoriesMasterData.length === 0) {
+        $tableBody.html(`<tr><td colspan="${totalColumns}" class="text-center">데이터가 없습니다.</td></tr>`);
+        $('#accessories-master-pagination').empty();
+        return;
+      }
+      
+      // 사용 제품 수 계산 로직 (기존과 동일)
+      const usageCounts = {};
+      const usageAccessoryCodeIdx = usageHeaders.indexOf('부자재코드');
+      const usageSabangCodeIdx = usageHeaders.indexOf('사방넷코드');
+      const accessoryProductMap = {};
+      if (usageAccessoryCodeIdx !== -1 && usageSabangCodeIdx !== -1) {
+        accessoriesUsageData.forEach(row => {
+          const code = row[usageAccessoryCodeIdx];
+          const sabangCode = row[usageSabangCodeIdx];
+          if (code && sabangCode) {
+            if (!accessoryProductMap[code]) accessoryProductMap[code] = new Set();
+            accessoryProductMap[code].add(sabangCode);
+          }
+        });
+        Object.keys(accessoryProductMap).forEach(code => { usageCounts[code] = accessoryProductMap[code].size; });
+      }
+      
+      // 고정 컬럼 인덱스
+      const accessoryCodeIdx = masterHeaders.indexOf('부자재코드');
+      const accessoryNameIdx = masterHeaders.indexOf('부자재명(한)');
+      
+      // 페이지네이션 계산
+      const itemsPerPage = AppState.get('itemsPerPage');
+      const totalPages = Math.ceil(accessoriesMasterData.length / itemsPerPage);
+      const currentPage = AppState.get('accessoriesMasterCurrentPage') || 1;
+      const startIndex = (currentPage - 1) * itemsPerPage;
+      const endIndex = Math.min(startIndex + itemsPerPage, accessoriesMasterData.length);
+      const pageData = accessoriesMasterData.slice(startIndex, endIndex);
+      
+      const fragment = document.createDocumentFragment();
+      
+      pageData.forEach((row, idx) => {
+        const accessoryCode = row[accessoryCodeIdx] || '-';
+        const accessoryName = row[accessoryNameIdx] || '-';
+        const usageCount = usageCounts[accessoryCode] || 0;
+        
+        const $row = $(document.createElement('tr'));
+        
+        // 고정 컬럼 추가
+        $row.append(`<td>${accessoryCode}</td>`);
+        $row.append(`<td>${accessoryName}</td>`);
+        
+        // 동적 컬럼 추가 - 표시 설정된 컬럼만 추가
+        dynamicHeadersInfo.forEach(headerInfo => {
+          // visible 속성이 true인 헤더만 추가
+          if (headerInfo.visible !== false) {
+            const value = row[headerInfo.index] || '-';
+            $row.append(`<td>${value}</td>`);
+          }
+        });
+        
+        // 사용 제품 수 컬럼 추가
+        $row.append(`<td><button type="button" class="btn btn-link p-0 view-master-accessory-btn" data-code="${accessoryCode}"><span class="badge bg-${usageCount > 0 ? 'primary' : 'secondary'}">${usageCount}</span></button></td>`);
+        
+        // 액션 컬럼 추가
+        const $actions = $(document.createElement('td'));
+        $actions.addClass('table-actions');
+        $actions.html(`
+          <button class="btn btn-sm btn-outline-info view-master-accessory-btn" data-code="${accessoryCode}" title="상세 정보">
+            <i class="fas fa-eye"></i>
+          </button>
+          <button class="btn btn-sm btn-outline-primary edit-master-accessory-btn" data-code="${accessoryCode}" title="수정">
+            <i class="fas fa-edit"></i>
+          </button>
+          <button class="btn btn-sm btn-outline-danger delete-master-accessory-btn" data-code="${accessoryCode}" title="삭제">
+            <i class="fas fa-trash"></i>
+          </button>
+        `);
+        $row.append($actions);
+        fragment.appendChild($row[0]);
+      });
+      
+      $tableBody.append(fragment);
+      renderAccessoriesViewPagination(totalPages);
+    }
+    
+    /**
+     * 통합된 부자재 뷰 페이지네이션 렌더링
+     */
+    function renderAccessoriesViewPagination(totalPages) {
+      const $pagination = $('#accessories-master-pagination');
+      $pagination.empty();
+      
+      if (totalPages <= 1) return;
+      
+      const currentPage = AppState.get('accessoriesMasterCurrentPage') || 1;
+      const fragment = document.createDocumentFragment();
+      
+      const $prevItem = $(document.createElement('li'));
+      $prevItem.addClass('page-item');
+      if (currentPage === 1) $prevItem.addClass('disabled');
+      const $prevLink = $(document.createElement('a'));
+      $prevLink.addClass('page-link').attr('href', '#').attr('data-page', currentPage - 1).text('이전');
+      $prevItem.append($prevLink);
+      fragment.appendChild($prevItem[0]);
+      
+      const maxVisiblePages = 5;
+      const startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+      const endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+      
+      for (let i = startPage; i <= endPage; i++) {
+        const $pageItem = $(document.createElement('li'));
+        $pageItem.addClass('page-item');
+        if (i === currentPage) $pageItem.addClass('active');
+        const $pageLink = $(document.createElement('a'));
+        $pageLink.addClass('page-link').attr('href', '#').attr('data-page', i).text(i);
+        $pageItem.append($pageLink);
+        fragment.appendChild($pageItem[0]);
+      }
+      
+      const $nextItem = $(document.createElement('li'));
+      $nextItem.addClass('page-item');
+      if (currentPage === totalPages) $nextItem.addClass('disabled');
+      const $nextLink = $(document.createElement('a'));
+      $nextLink.addClass('page-link').attr('href', '#').attr('data-page', currentPage + 1).text('다음');
+      $nextItem.append($nextLink);
+      fragment.appendChild($nextItem[0]);
+      
+      $pagination.append(fragment);
+    }
+    
+    /**
+     * 통합된 부자재 상세 정보 보기 (마스터 + 사용 제품)
+     */
+    function showAccessoryDetails(accessoryCode) {
+      console.log("부자재 상세 정보 로드 시작:", accessoryCode);
+      UI.showLoading();
+      
+      ServerAPI.getMasterAccessoryByCode(accessoryCode)
+        .then(result => {
+          console.log("부자재 마스터 상세 정보 로드 결과:", result);
+          
+          if (result.success) {
+            renderMasterAccessoryDetailsModal(result.accessory); // 모달 내 마스터 정보 렌더링
+            loadAccessoryProductsModal(accessoryCode); // 모달 내 사용 제품 목록 로드
+            
+            const modal = new bootstrap.Modal(document.getElementById('accessory-details-modal'));
+            modal.show();
+          } else {
+            UI.showAlert('오류', result.message, 'danger');
+          }
+          UI.hideLoading();
+        })
+        .catch(error => {
+          console.error("부자재 상세 정보 로드 오류:", error);
+          UI.showAlert('오류', '부자재 상세 정보를 불러오는 중 오류가 발생했습니다: ' + error, 'danger');
+          UI.hideLoading();
+        });
+    }
+    
+    /**
+     * 부자재 마스터 상세 정보 렌더링 (상세 모달 내)
+     */
+    function renderMasterAccessoryDetailsModal(accessory) {
+      console.log("부자재 마스터 상세 정보 렌더링 (모달 내):", accessory);
+      $('#accessory-details-modal-label').text(accessory['부자재명(한)'] || '부자재 상세정보');
+      const $detailsTable = $('#accessory-master-details-table');
+      $detailsTable.empty();
+      
+      // 마스터 헤더 가져오기 (순서 유지를 위해)
+      const masterHeaders = AppState.get('accessoriesMasterHeaders') || [];
+      
+      // 속성 정렬 로직 수정 - 알파벳순 대신 masterHeaders의 순서 따라가기
+      const priorityKeys = ['부자재코드', '부자재명(한)'];
+      
+      // accessory 객체의 모든 키를 가져옴
+      const accessoryKeys = Object.keys(accessory);
+      
+      // 1. 우선순위 키 먼저 정렬
+      const orderedKeys = [...priorityKeys];
+      
+      // 2. 나머지 키는 masterHeaders 순서대로 추가
+      masterHeaders.forEach(header => {
+        if (!priorityKeys.includes(header) && accessoryKeys.includes(header)) {
+          orderedKeys.push(header);
+        }
+      });
+      
+      // 3. masterHeaders에 없는 나머지 속성들 추가 (만약 있다면)
+      accessoryKeys.forEach(key => {
+        if (!orderedKeys.includes(key)) {
+          orderedKeys.push(key);
+        }
+      });
+      
+      orderedKeys.forEach(key => {
+        const value = accessory[key] !== undefined && accessory[key] !== null ? accessory[key] : '-';
+        const $row = $(document.createElement('tr'));
+        $row.append(`<th>${key}</th>`);
+        $row.append(`<td>${value}</td>`);
+        $detailsTable.append($row);
+      });
+      // 수정 버튼에 부자재 코드 저장
+      $('.edit-master-accessory-modal-btn').data('code', accessory['부자재코드']);
+    }
+
+    /**
+     * 부자재 사용 제품 목록 로드 (상세 모달 내)
+     */
+    function loadAccessoryProductsModal(accessoryCode) {
+      console.log("부자재 사용 제품 목록 로드 시작 (모달 내):", accessoryCode);
+      const $table = $('#accessory-products-table');
+      const $usageInfo = $('#accessory-usage-info');
+      
+      $table.html('<tr><td colspan="3" class="text-center">데이터 로딩 중...</td></tr>');
+      $usageInfo.text('부자재 사용 정보 확인 중...').removeClass('alert-success alert-warning alert-secondary').addClass('alert-info');
+      
+      const accessoriesUsageData = AppState.get('accessoriesUsageData') || [];
+      const usageHeaders = AppState.get('accessoriesUsageHeaders') || [];
+      
+      // 디버깅: 사용 가능한 헤더 정보 출력
+      console.log("부자재 사용 정보 헤더:", usageHeaders);
+      
+      const accessoryCodeIdx = usageHeaders.indexOf('부자재코드');
+      const sabangCodeIdx = usageHeaders.indexOf('사방넷코드');
+      
+      // 제품명 필드를 우선순위에 따라 찾기
+      let productNameIdx = usageHeaders.indexOf('제품명_발주점검시트');
+      if (productNameIdx === -1) {
+        productNameIdx = usageHeaders.indexOf('상세제품명(한)');
+        if (productNameIdx === -1) {
+          // 아직도 찾지 못했다면 '제품명'이 포함된 필드 찾기
+          productNameIdx = usageHeaders.findIndex(header => header.includes('제품명'));
+        }
+      }
+      
+      console.log("부자재 사용 정보 인덱스 - 부자재코드:", accessoryCodeIdx, "사방넷코드:", sabangCodeIdx, "제품명:", productNameIdx);
+      
+      if (accessoryCodeIdx === -1 || sabangCodeIdx === -1 || productNameIdx === -1) {
+        $table.html('<tr><td colspan="3" class="text-center">사용 제품 데이터 구조를 확인할 수 없습니다.</td></tr>');
+        $usageInfo.text('사용 정보를 표시할 수 없습니다.').removeClass('alert-info').addClass('alert-warning');
+        return;
+      }
+      
+      const products = [];
+      const uniqueSabangCodes = new Set();
+      
+      accessoriesUsageData.forEach(row => {
+        if (row[accessoryCodeIdx] === accessoryCode) {
+          const sabangCode = row[sabangCodeIdx];
+          if (!uniqueSabangCodes.has(sabangCode)) {
+            uniqueSabangCodes.add(sabangCode);
+            products.push({
+              sabangCode: sabangCode,
+              productName: row[productNameIdx] || '이름 없음'
+            });
+          }
+        }
+      });
+      
+      console.log("부자재에 연결된 제품 수:", products.length, "제품 데이터:", products);
+      
+      if (products.length === 0) {
+        $table.html('<tr><td colspan="3" class="text-center">사용 제품이 없습니다.</td></tr>');
+        $usageInfo.text('이 부자재는 현재 사용 중인 제품이 없습니다.').removeClass('alert-info').addClass('alert-secondary');
+        return;
+      }
+      
+      $usageInfo.text(`이 부자재는 ${products.length}개의 제품에 사용 중입니다.`).removeClass('alert-info alert-secondary').addClass('alert-success');
+      const fragment = document.createDocumentFragment();
+      
+      products.forEach(product => {
+        const $row = $(document.createElement('tr'));
+        $row.append(`<td>${product.sabangCode || '-'}</td>`);
+        $row.append(`<td>${product.productName}</td>`);
+        const $actionsCell = $(document.createElement('td'));
+        $actionsCell.html(`
+          <button class="btn btn-sm btn-outline-primary view-product-btn" data-sabang="${product.sabangCode}">
+            <i class="fas fa-info-circle"></i> 보기
+          </button>
+        `);
+        $row.append($actionsCell);
+        fragment.appendChild($row[0]);
+      });
+      
+      $table.empty().append(fragment);
+      console.log("부자재 사용 제품 목록 로드 완료 (모달 내):", products.length, "개");
+    }
+    
+    // ===== 제품 매핑 관련 변수 및 함수 =====
+    let selectedProductsForMapping = new Set(); // 현재 모달에서 매핑 대상으로 선택된 제품 Set (사방넷 코드)
+
+    /**
+     * 제품 매핑 섹션 초기화
+     */
+    function initializeProductMappingSection(mode = 'add', existingData = null) {
+      console.log('initializeProductMappingSection 호출됨:', mode, existingData);
+      
+      // 헤더 정보 확인 (디버깅)
+      const productHeaders = AppState.get('headers');
+      const productData = AppState.get('productData');
+      console.log('제품 헤더 정보:', productHeaders);
+      console.log('제품 데이터 유효성:', productData ? `${productData.length}개 항목` : '없음');
+      
+      // 제품 선택 버튼 이벤트
+      $('#select-products-btn').off('click').on('click', function() {
+        $('#product-selection-modal').modal('show');
+        initProductSelectionModal();
+      });
+
+      // 매핑된 제품 삭제 버튼 이벤트
+      $('#mapped-products-list').off('click').on('click', '.remove-mapped-product', function() {
+        const sabangCode = $(this).data('sabang-code');
+        console.log('제품 매핑 삭제:', sabangCode);
+        selectedProductsForMapping.delete(sabangCode);
+        renderMappedProducts();
+      });
+
+      // 기존 데이터가 있는 경우 (편집 모드)
+      if (mode === 'edit' && existingData) {
+        const productMapping = existingData.productMapping || [];
+        if (Array.isArray(productMapping) && productMapping.length > 0) {
+          console.log('편집 모드에서 기존 매핑 데이터 로드:', productMapping);
+          selectedProductsForMapping.clear();
+          productMapping.forEach(mapping => {
+            if (mapping && mapping.sabangCode) {
+              selectedProductsForMapping.add(mapping.sabangCode);
+            }
+          });
+          console.log('로드된 사방넷 코드:', Array.from(selectedProductsForMapping));
+        } else {
+          console.log('편집 모드이지만 매핑 데이터가 없거나 비어있음');
+          selectedProductsForMapping.clear();
+        }
+      } else {
+        console.log('새 매핑 생성 모드');
+        selectedProductsForMapping.clear();
+      }
+
+      // 초기 렌더링
+      renderMappedProducts();
+    }
+
+    /**
+     * 제품 선택 모달 초기화
+     */
+    function initProductSelectionModal() {
+      console.log('제품 선택 모달 초기화');
+      const $modal = $('#product-selection-modal');
+      const $searchInput = $modal.find('#product-search-input');
+      const $productTable = $modal.find('#product-selection-table tbody');
+      const $selectedCount = $modal.find('#selected-products-count');
+      
+      // 테이블 초기화
+      function renderProductSelectionTable(filter = '') {
+        console.log('제품 선택 테이블 렌더링, 필터:', filter);
+        $productTable.empty();
+        
+        // 명시적으로 AppState에서 최신 제품 데이터와 헤더 가져오기
+        const productData = AppState.get('productData') || [];
+        // 중요: AppState의 'headers'에서 제품 헤더 가져오기 (AppState.get('productHeaders') 대신)
+        const productHeaders = AppState.get('headers') || [];
+        
+        console.log('제품 데이터 수:', productData.length);
+        console.log('제품 헤더:', productHeaders);
+        
+        const sabangCodeIdx = productHeaders.indexOf('사방넷코드');
+        const productNameIdx = productHeaders.indexOf('제품명_발주점검시트');
+        const productCodeIdx = productHeaders.indexOf('제품코드');
+        
+        console.log('인덱스 - 사방넷코드:', sabangCodeIdx, '제품명_발주점검시트:', productNameIdx, '제품코드:', productCodeIdx);
+        
+        // 인덱스 오류 확인
+        if (sabangCodeIdx === -1 || productNameIdx === -1) {
+          console.error('제품 헤더에서 필요한 필드를 찾을 수 없습니다');
+          $productTable.html('<tr><td colspan="4" class="text-center text-danger">제품 데이터 형식 오류: 필요한 헤더 필드를 찾을 수 없습니다.</td></tr>');
+          return;
+        }
+        
+        // 필터링 및 정렬
+        const filteredProducts = productData.filter(product => {
+          if (!filter) return true;
+          
+          const sabangCode = product[sabangCodeIdx] || '';
+          const productName = product[productNameIdx] || '';
+          const productCode = productCodeIdx !== -1 ? (product[productCodeIdx] || '') : '';
+          
+          const searchLower = filter.toLowerCase();
+          return sabangCode.toLowerCase().includes(searchLower) ||
+                 productName.toLowerCase().includes(searchLower) ||
+                 productCode.toLowerCase().includes(searchLower);
+        });
+        
+        console.log('필터링된 제품 수:', filteredProducts.length);
+        
+        if (filteredProducts.length === 0) {
+          $productTable.html('<tr><td colspan="4" class="text-center">검색 결과가 없습니다.</td></tr>');
+          return;
+        }
+
+        // 테이블 생성
+        filteredProducts.forEach(product => {
+          const sabangCode = product[sabangCodeIdx] || '';
+          const productName = product[productNameIdx] || '';
+          const productCode = productCodeIdx !== -1 ? (product[productCodeIdx] || '') : '';
+          
+          const isSelected = selectedProductsForMapping.has(sabangCode);
+          
+          const $row = $(`
+            <tr class="${isSelected ? 'table-active' : ''}">
+              <td>
+                <div class="form-check">
+                  <input class="form-check-input product-selector" type="checkbox" 
+                         ${isSelected ? 'checked' : ''}
+                         data-sabang-code="${sabangCode}">
+                </div>
+              </td>
+              <td>${sabangCode}</td>
+              <td>${productName}</td>
+              <td>${productCode}</td>
+            </tr>
+          `);
+          
+          $productTable.append($row);
+        });
+        
+        // 선택된 항목 수 업데이트
+        updateSelectedCount();
+      }
+      
+      function updateSelectedCount() {
+        $selectedCount.text(selectedProductsForMapping.size);
+      }
+      
+      // 검색 이벤트
+      $searchInput.off('input').on('input', function() {
+        const searchTerm = $(this).val().trim();
+        renderProductSelectionTable(searchTerm);
+      });
+      
+      // 체크박스 이벤트
+      $productTable.off('change').on('change', '.product-selector', function() {
+        const sabangCode = $(this).data('sabang-code');
+        if (this.checked) {
+          selectedProductsForMapping.add(sabangCode);
+          $(this).closest('tr').addClass('table-active');
+        } else {
+          selectedProductsForMapping.delete(sabangCode);
+          $(this).closest('tr').removeClass('table-active');
+        }
+        updateSelectedCount();
+      });
+      
+      // 모달 확인 버튼
+      $modal.find('.modal-footer .btn-primary').off('click').on('click', function() {
+        $modal.modal('hide');
+        renderMappedProducts();
+      });
+      
+      // 초기 테이블 렌더링
+      renderProductSelectionTable();
+    }
+
+    /**
+     * 제품 검색 실행 및 결과 표시
+     */
+    function searchProductsForMapping() {
+      const query = $('#product-search-input').val().trim().toLowerCase();
+      const $resultsContainer = $('#product-search-results');
+      $resultsContainer.empty();
+
+      // 디버깅: 함수 호출 및 검색어 확인
+      console.log('searchProductsForMapping 호출됨, 검색어:', query);
+
+      if (!query) {
+        $resultsContainer.text('검색어를 입력하세요.');
+        return;
+      }
+
+      const allProducts = AppState.get('productData') || [];
+      const productHeaders = AppState.get('headers') || [];
+
+      // 디버깅: 로드된 제품 데이터 및 헤더 확인
+      console.log('로드된 제품 수:', allProducts.length);
+      console.log('로드된 헤더:', productHeaders);
+
+      const sabangCodeIdx = productHeaders.indexOf('사방넷코드');
+      const productNameIdx = productHeaders.indexOf('제품명_발주점검시트');
+      // 제품 코드 인덱스 추가 (검색 정확성 개선 위해)
+      const productCodeIdx = productHeaders.indexOf('제품코드');
+
+      // 디버깅: 찾은 헤더 인덱스 확인
+      console.log('인덱스 - 사방넷코드:', sabangCodeIdx, '제품명_발주점검시트:', productNameIdx, '제품코드:', productCodeIdx);
+
+      if (sabangCodeIdx === -1 || productNameIdx === -1) {
+        // 제품코드 인덱스 실패는 오류로 간주하지 않을 수 있음 (선택적 필드일 경우)
+        console.error('필수 헤더(사방넷코드 또는 제품명)를 찾을 수 없습니다.');
+        $resultsContainer.text('제품 데이터 구조 오류');
+        return;
+      }
+
+      const fragment = document.createDocumentFragment();
+      let count = 0;
+
+      allProducts.forEach(product => {
+        const sabangCode = product[sabangCodeIdx] || '';
+        const productName = product[productNameIdx] || '이름 없음';
+        // 제품 코드 값 가져오기
+        const productCode = productCodeIdx !== -1 ? (product[productCodeIdx] || '') : '';
+
+        // 디버깅: 검색 대상 제품 정보 확인 (필요시 주석 해제)
+        // console.log(`검색 대상: 사방넷[${sabangCode}], 제품명[${productName}], 제품코드[${productCode}]`);
+
+        // 검색 로직 수정: 제품 코드도 검색 대상에 포함
+        if (sabangCode && productName &&
+            (sabangCode.toLowerCase().includes(query) ||
+             productName.toLowerCase().includes(query) ||
+             (productCode && productCode.toLowerCase().includes(query)) // 제품 코드가 존재하면 검색
+            )) {
+
+          // 이전 문제점 해결: 이미 매핑된 제품도 검색 결과에 포함 (주석 처리 또는 삭제)
+          /*
+          if (selectedProductsForMapping.has(sabangCode)) {
+            // 디버깅: 이미 매핑되어 제외되는 제품 확인
+            console.log(`이미 매핑됨: ${sabangCode} (${productName})`);
+            return;
+          }
+          */
+
+          const $item = $(document.createElement('button'))
+            .addClass('list-group-item list-group-item-action d-flex justify-content-between align-items-center product-search-result')
+            .attr('type', 'button')
+            .attr('data-sabang', sabangCode)
+            .attr('data-name', productName);
+
+          $item.html(`
+            <div>
+              <small class="text-muted">${sabangCode}</small><br>
+              ${productName} ${productCode ? '(' + productCode + ')' : ''} 
+            </div>
+            <i class="fas fa-plus text-success"></i>
+          `);
+          fragment.appendChild($item[0]);
+          count++;
+        }
+      });
+
+      // 디버깅: 최종 검색 결과 수 확인
+      console.log('검색 결과 수:', count);
+
+      if (count === 0) {
+        $resultsContainer.text('검색 결과가 없습니다.');
+      } else {
+        $resultsContainer.append(fragment);
+      }
+    }
+
+    /**
+     * 현재 선택된 제품 목록을 렌더링
+     */
+    function renderMappedProducts() {
+      // 디버깅: 헤더와 선택된 제품 정보 출력
+      console.log('매핑된 제품 렌더링 시작');
+      console.log('현재 선택된 제품 수:', selectedProductsForMapping.size);
+      
+      // 명시적으로 AppState에서 최신 제품 데이터와 헤더 가져오기
+      const productHeaders = AppState.get('headers') || [];
+      const productData = AppState.get('productData') || [];
+      
+      console.log('제품 헤더:', productHeaders);
+      const sabangCodeIdx = productHeaders.indexOf('사방넷코드');
+      const productNameIdx = productHeaders.indexOf('제품명_발주점검시트');
+      
+      console.log('사방넷코드 인덱스:', sabangCodeIdx, '제품명_발주점검시트 인덱스:', productNameIdx);
+      
+      // 선택된 제품이 없을 경우
+      if (selectedProductsForMapping.size === 0) {
+        $('#mapped-products-list').text('매핑된 제품이 없습니다.');
+        $('#mapped-products-count').text('0');
+        return;
+      }
+
+      const $container = $('#mapped-products-list').empty();
+      const selectedSabangCodes = Array.from(selectedProductsForMapping);
+
+      // 안전한 인덱스 체크
+      if (sabangCodeIdx === -1 || productNameIdx === -1) {
+        console.error('제품 헤더에서 필요한 필드를 찾을 수 없습니다. 사방넷코드:', sabangCodeIdx, '제품명_발주점검시트:', productNameIdx);
+        $container.html('<div class="alert alert-danger">제품 데이터 형식 오류: 필요한 헤더 필드를 찾을 수 없습니다.</div>');
+        return;
+      }
+
+      // 각 선택된 제품에 대해
+      let foundProductsCount = 0;
+      selectedSabangCodes.forEach(sabangCode => {
+        // 제품 데이터에서 해당 사방넷코드 제품 찾기
+        const productRow = productData.find(row => 
+          sabangCodeIdx >= 0 && row[sabangCodeIdx] === sabangCode
+        );
+
+        if (productRow) {
+          foundProductsCount++;
+          const productName = productNameIdx >= 0 ? productRow[productNameIdx] : '제품명 없음';
+          
+          // 제품 항목 UI 생성
+          const $item = $(`
+            <div class="d-flex justify-content-between align-items-center border-bottom py-2">
+              <div>
+                <strong>${sabangCode}</strong> - ${productName}
+              </div>
+              <button class="btn btn-sm btn-outline-danger remove-mapped-product" 
+                      data-sabang-code="${sabangCode}">
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
+          `);
+          $container.append($item);
+        } else {
+          console.warn(`사방넷코드 ${sabangCode}에 해당하는 제품을 찾을 수 없습니다.`);
+          // 제품이 없더라도 UI에는 표시 (삭제 가능하도록)
+          const $item = $(`
+            <div class="d-flex justify-content-between align-items-center border-bottom py-2 text-muted">
+              <div>
+                <strong>${sabangCode}</strong> - <i>제품 정보 없음</i>
+              </div>
+              <button class="btn btn-sm btn-outline-danger remove-mapped-product" 
+                      data-sabang-code="${sabangCode}">
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
+          `);
+          $container.append($item);
+        }
+      });
+
+      $('#mapped-products-count').text(selectedProductsForMapping.size);
+      console.log('매핑된 제품 렌더링 완료, 실제 찾은 제품 수:', foundProductsCount);
+    }
+
+    /**
+     * 제품 매핑 관련 이벤트 리스너 설정 (중복 방지)
+     */
+    function setupMappingEventListeners(modalSelector) {
+      const $modal = $(modalSelector); // 모달 jQuery 객체
+
+      console.log(`Setting up listeners for modal: ${modalSelector}`);
+
+      // 기존 리스너 제거 (모달 범위 내에서)
+      $modal.off('input', '#product-search-input');
+      $modal.off('keydown', '#product-search-input');
+      $modal.off('click', '#clear-product-search-btn');
+      $modal.off('click', '.product-search-result');
+      $modal.off('click', '.remove-mapped-product');
+
+      // 제품 검색 입력 (Debounce 적용)
+      $modal.on('input', '#product-search-input', debounce(function() {
+        console.log('Debounced search triggered for:', $(this).val());
+        searchProductsForMapping.call(this); // searchProductsForMapping 함수는 AppState 등 전역 상태를 사용하므로 this 컨텍스트가 중요하지 않을 수 있음
+      }, 300));
+
+      // 제품 검색 입력창에서 Enter 키 방지
+      $modal.on('keydown', '#product-search-input', function(event) {
+        if (event.key === 'Enter') {
+          console.log('Enter key pressed in #product-search-input, preventing default.');
+          event.preventDefault();
+        }
+      });
+
+      // 검색어 지우기 버튼
+      $modal.on('click', '#clear-product-search-btn', function() {
+        $modal.find('#product-search-input').val('').trigger('input'); // 모달 내에서 검색
+      });
+
+      // 검색 결과 클릭 (매핑 추가)
+      $modal.on('click', '.product-search-result', function() {
+        const sabangCode = $(this).data('sabang');
+        if (sabangCode && !selectedProductsForMapping.has(sabangCode)) {
+          selectedProductsForMapping.add(sabangCode);
+          renderMappedProducts();
+          $(this).remove();
+          if ($modal.find('#product-search-results').children().length === 0) {
+             $modal.find('#product-search-results').text('검색 결과가 없습니다.');
+          }
+        }
+      });
+
+      // 매핑된 제품 제거 버튼 클릭
+      $modal.on('click', '.remove-mapped-product', function() {
+        const sabangCode = $(this).data('sabang-code');
+        if (sabangCode) {
+          console.log('제품 매핑 삭제 (이벤트 리스너):', sabangCode);
+          selectedProductsForMapping.delete(sabangCode);
+          renderMappedProducts();
+        }
+      });
+    }
+    
+    /**
+     * 부자재 마스터 추가 모달 표시 (동적 필드 + 제품 매핑)
+     */
+    function showAddAccessoryMasterModal() {
+      const $form = $('#accessory-master-form');
+      const $dynamicFieldsContainer = $('#accessory-master-form-dynamic-fields');
+      const masterHeaders = AppState.get('accessoriesMasterHeaders') || [];
+      $form[0].reset();
+      $dynamicFieldsContainer.empty(); 
+      $('#accessory-master-modal-label').text('부자재 추가');
+      $('#accessory-master-code').prop('disabled', false);
+      $('#save-accessory-master-btn').data('mode', 'add');
+      const fragment = document.createDocumentFragment();
+      masterHeaders.forEach(header => {
+        if (header === '부자재코드' || header === '부자재명(한)') return;
+        const $fieldDiv = $(document.createElement('div')).addClass('mb-3');
+        const fieldId = 'accessory-master-' + header.replace(/\(.*?\)/g, '').replace(/[^a-zA-Z0-9]/g, '_');
+        const $label = $(document.createElement('label')).attr('for', fieldId).addClass('form-label').text(header);
+        const $input = $(document.createElement('input')).attr('type', 'text').addClass('form-control').attr('id', fieldId).attr('data-header', header);
+        $fieldDiv.append($label).append($input);
+        fragment.appendChild($fieldDiv[0]);
+      });
+      $dynamicFieldsContainer.append(fragment);
+
+      // 제품 매핑 섹션 초기화 (데이터 로드 전)
+      initializeProductMappingSection('add'); // selectedProductsForMapping 초기화 등
+
+      const modalElement = document.getElementById('accessory-master-modal');
+      const modal = new bootstrap.Modal(modalElement);
+
+      // 모달이 완전히 표시된 후에 이벤트 리스너 설정
+      $(modalElement).off('shown.bs.modal').on('shown.bs.modal', function () {
+        console.log('Add Accessory Modal shown, setting up listeners.');
+        setupMappingEventListeners('#accessory-master-modal'); // 모달 ID 전달
+      });
+
+      modal.show();
+    }
+    
+    /**
+     * 부자재 마스터 수정 모달 표시 (동적 필드 + 제품 매핑)
+     */
+    function showEditAccessoryMasterModal(accessoryCode) {
+      console.log("부자재 마스터 수정 시작:", accessoryCode);
+      UI.showLoading();
+      
+      // AppState 데이터 확인 (디버깅)
+      console.log("부자재 수정 모달 - AppState 데이터 확인:");
+      console.log("- 제품 헤더:", AppState.get('headers'));
+      console.log("- 제품 데이터:", AppState.get('productData') ? `${AppState.get('productData').length}개 항목` : '없음');
+      console.log("- 부자재 마스터 헤더:", AppState.get('accessoriesMasterHeaders') || '없음');
+      
+      // 먼저 기존 부자재-제품 연결 정보를 가져오기
+      const accessoriesUsageData = AppState.get('accessoriesUsageData') || [];
+      const usageHeaders = AppState.get('accessoriesUsageHeaders') || [];
+      const accessoryCodeIdx = usageHeaders.indexOf('부자재코드');
+      const sabangCodeIdx = usageHeaders.indexOf('사방넷코드');
+      
+      // 연결된 제품 목록 찾기
+      const connectedProducts = [];
+      if (accessoryCodeIdx !== -1 && sabangCodeIdx !== -1) {
+        const uniqueSabangCodes = new Set();
+        
+        accessoriesUsageData.forEach(row => {
+          if (row[accessoryCodeIdx] === accessoryCode) {
+            const sabangCode = row[sabangCodeIdx];
+            if (sabangCode && !uniqueSabangCodes.has(sabangCode)) {
+              uniqueSabangCodes.add(sabangCode);
+              connectedProducts.push({
+                sabangCode: sabangCode
+              });
+            }
+          }
+        });
+        
+        console.log(`부자재 ${accessoryCode}에 연결된 제품 ${connectedProducts.length}개 찾음:`, connectedProducts);
+      }
+      
+      ServerAPI.getMasterAccessoryByCode(accessoryCode)
+        .then(result => {
+          if (result.success) {
+            const accessory = result.accessory;
+            
+            // 연결된 제품 정보 추가
+            accessory.productMapping = connectedProducts;
+            
+            const masterHeaders = AppState.get('accessoriesMasterHeaders') || [];
+            const $form = $('#accessory-master-form');
+            const $dynamicFieldsContainer = $('#accessory-master-form-dynamic-fields');
+            $dynamicFieldsContainer.empty();
+            $('#accessory-master-modal-label').text('부자재 수정');
+            $('#accessory-master-code').val(accessory['부자재코드']).prop('disabled', true);
+            $('#accessory-master-name').val(accessory['부자재명(한)'] || '');
+            const fragment = document.createDocumentFragment();
+            masterHeaders.forEach(header => {
+              if (header === '부자재코드' || header === '부자재명(한)') return;
+              const $fieldDiv = $(document.createElement('div')).addClass('mb-3');
+              const fieldId = 'accessory-master-' + header.replace(/\(.*?\)/g, '').replace(/[^a-zA-Z0-9]/g, '_');
+              const $label = $(document.createElement('label')).attr('for', fieldId).addClass('form-label').text(header);
+              const $input = $(document.createElement('input')).attr('type', 'text').addClass('form-control').attr('id', fieldId).attr('data-header', header);
+              $input.val(accessory[header] || '');
+              $fieldDiv.append($label).append($input);
+              fragment.appendChild($fieldDiv[0]);
+            });
+            $dynamicFieldsContainer.append(fragment);
+
+            // 제품 매핑 섹션 초기화 (기존 매핑 로드)
+            console.log("제품 매핑 초기화 직전 - accessory 객체:", accessory);
+            initializeProductMappingSection('edit', accessory);
+
+            $('#save-accessory-master-btn').data('mode', 'edit');
+            
+            const modalElement = document.getElementById('accessory-master-modal');
+            const modal = new bootstrap.Modal(modalElement);
+
+            // 모달이 완전히 표시된 후에 이벤트 리스너 설정
+            $(modalElement).off('shown.bs.modal').on('shown.bs.modal', function () {
+              console.log('Edit Accessory Modal shown, setting up listeners.');
+              setupMappingEventListeners('#accessory-master-modal'); // 모달 ID 전달
+            });
+            
+            modal.show();
+          } else {
+            UI.showAlert('오류', result.message, 'danger');
+          }
+          UI.hideLoading();
+        })
+        .catch(error => {
+          console.error("부자재 마스터 정보 로드 오류:", error);
+          UI.showAlert('오류', '부자재 정보를 불러오는 중 오류가 발생했습니다: ' + error, 'danger');
+          UI.hideLoading();
+        });
+    }
+    
+    /**
+     * 부자재 마스터 저장 (추가 또는 수정 - 제품 매핑 포함)
+     */
+    function saveAccessoryMaster() {
+      const mode = $('#save-accessory-master-btn').data('mode');
+      const accessoryData = {};
+      
+      // 고정 필드 값 가져오기
+      accessoryData['부자재코드'] = $('#accessory-master-code').val().trim();
+      accessoryData['부자재명(한)'] = $('#accessory-master-name').val().trim();
+
+      // 동적 필드 값 가져오기
+      $('#accessory-master-form-dynamic-fields').find('input, textarea, select').each(function() {
+        const $input = $(this);
+        const header = $input.data('header'); // 저장된 원래 헤더 이름 사용
+        if (header) {
+          accessoryData[header] = $input.val().trim();
+        }
+      });
+
+      // 빈 값 제거 (옵션)
+      Object.keys(accessoryData).forEach(key => {
+        if (!accessoryData[key]) {
+          // 빈 값을 유지할지, 삭제할지 정책에 따라 결정
+          // delete accessoryData[key]; 
+        }
+      });
+      
+      // 필수 필드 확인
+      if (!accessoryData['부자재코드']) {
+        UI.showAlert('경고', '부자재 코드는 필수입니다.', 'warning'); return;
+      }
+      if (!accessoryData['부자재명(한)']) {
+        UI.showAlert('경고', '부자재명은 필수입니다.', 'warning'); return;
+      }
+      
+      UI.showLoading();
+      
+      const accessoryCode = accessoryData['부자재코드']; // 최종 부자재 코드
+      const originalCode = mode === 'edit' ? accessoryCode : null; // 수정 시 원본 코드는 accessoryCode와 동일 (disabled 이므로)
+
+      // 부자재 저장 전 매핑 정보 디버깅
+      console.log("저장 전 제품 매핑 데이터:");
+      console.log("- 매핑된 제품 수:", selectedProductsForMapping.size);
+      console.log("- 매핑된 사방넷 코드:", Array.from(selectedProductsForMapping));
+
+      const saveAction = mode === 'add' 
+        ? ServerAPI.addAccessoryMaster(accessoryData) 
+        : ServerAPI.updateAccessoryMaster(originalCode, accessoryData);
+        
+      saveAction.then(result => {
+          if (result.success) {
+            // 부자재 정보 저장 성공 후 제품 매핑 업데이트
+            console.log(`부자재 ${mode === 'add' ? '추가' : '수정'} 성공. 제품 매핑 업데이트 시작...`);
+            const mappedSabangCodes = Array.from(selectedProductsForMapping);
+            
+            return ServerAPI.updateAccessoryProductMappings(accessoryCode, mappedSabangCodes)
+              .then(mappingResult => {
+                if (mappingResult.success) {
+                  console.log("제품 매핑 업데이트 성공:", mappingResult);
+                  UI.showAlert('성공', `부자재가 ${mode === 'add' ? '추가' : '수정'}되고 제품 매핑이 업데이트되었습니다.`, 'success');
+                } else {
+                  // 매핑 실패 시 경고 표시 (부자재 저장은 성공했으므로)
+                  console.error("제품 매핑 업데이트 실패:", mappingResult);
+                  UI.showAlert('경고', `부자재 정보는 ${mode === 'add' ? '추가' : '수정'}되었지만, 제품 매핑 업데이트 중 오류 발생: ${mappingResult.message}`, 'warning');
+                }
+              });
+          } else {
+            // 부자재 정보 저장 실패
+            console.error("부자재 저장 실패:", result);
+            UI.showAlert('오류', result.message, 'danger');
+            return Promise.reject(result.message); // 체인 중단
+          }
+        })
+        .then(() => {
+            // 최종 처리 (성공/부분 성공 공통)
+            $('#accessory-master-modal').modal('hide');
+            loadAccessoriesViewData(); // 데이터 다시 로드
+            UI.hideLoading();
+        })
+        .catch(error => {
+          console.error(`부자재 ${mode === 'add' ? '추가' : '수정'} 또는 매핑 오류:`, error);
+          // saveAction 실패 시 에러 메시지, 매핑 실패 시엔 이미 경고 표시됨
+          if (typeof error === 'string' && !error.startsWith('제품 매핑 업데이트 중 오류 발생')) {
+             UI.showAlert('오류', `부자재를 ${mode === 'add' ? '추가' : '수정'}하는 중 오류 발생: ` + error, 'danger');
+          }
+          UI.hideLoading();
+        });
+    }
+    
+    function confirmDeleteAccessoryMaster(accessoryCode) {
+      const accessoriesUsageData = AppState.get('accessoriesUsageData') || [];
+      const usageHeaders = AppState.get('accessoriesUsageHeaders') || [];
+      const usageAccessoryCodeIdx = usageHeaders.indexOf('부자재코드');
+      let usageCount = 0;
+      if (usageAccessoryCodeIdx !== -1) {
+          accessoriesUsageData.forEach(row => {
+              if (row[usageAccessoryCodeIdx] === accessoryCode) usageCount++;
+          });
+      }
+      if (usageCount > 0) {
+        UI.showAlert('경고', `이 부자재는 ${usageCount}개의 제품에서 사용 중이므로 삭제할 수 없습니다.`, 'warning');
+      } else {
+        $('#delete-accessory-master-code').text(accessoryCode);
+        $('#confirm-delete-accessory-master-btn').data('code', accessoryCode);
+        const modal = new bootstrap.Modal(document.getElementById('delete-accessory-master-modal'));
+        modal.show();
+      }
+    }
+    
+    function deleteAccessoryMaster() {
+      const accessoryCode = $('#confirm-delete-accessory-master-btn').data('code');
+      if (!accessoryCode) {
+        UI.showAlert('오류', '부자재 코드가 지정되지 않았습니다.', 'danger'); return;
+      }
+      UI.showLoading();
+      ServerAPI.deleteAccessoryMaster(accessoryCode)
+        .then(result => {
+          if (result.success) {
+            UI.showAlert('성공', '부자재가 삭제되었습니다.', 'success');
+            $('#delete-accessory-master-modal').modal('hide');
+            loadAccessoriesViewData(); // 통합 뷰 데이터 다시 로드
+          } else {
+            UI.showAlert('오류', result.message, 'danger');
+            $('#delete-accessory-master-modal').modal('hide');
+          }
+          UI.hideLoading();
+        })
+        .catch(error => {
+          console.error("부자재 삭제 오류:", error);
+          UI.showAlert('오류', '부자재를 삭제하는 중 오류 발생: ' + error, 'danger');
+          $('#delete-accessory-master-modal').modal('hide');
+          UI.hideLoading();
+        });
+    }
+    
+    /**
+     * 통합된 부자재 뷰 검색 (동적 컬럼 포함)
+     */
+    function searchAccessoriesView() {
+      const query = $('#accessories-master-search-input').val().trim().toLowerCase();
+      const accessoriesMasterData = AppState.get('accessoriesMasterData') || [];
+      const masterHeaders = AppState.get('accessoriesMasterHeaders') || [];
+      const dynamicHeadersInfo = AppState.get('dynamicAccessoryHeaders') || [];
+      const totalColumns = $('#accessories-master-table').prev('thead').find('th').length; // 헤더에서 총 컬럼 수 계산
+
+      // 검색어가 없으면 전체 데이터 다시 렌더링 (페이지 1로)
+      if (!query) {
+        AppState.set('accessoriesMasterCurrentPage', 1);
+        renderAccessoriesViewTable(); 
+        return;
+      }
+      
+      UI.showLoading();
+      
+      // 고정 컬럼 인덱스
+      const accessoryCodeIdx = masterHeaders.indexOf('부자재코드');
+      const accessoryNameIdx = masterHeaders.indexOf('부자재명(한)');
+      
+      const filteredData = accessoriesMasterData.filter(row => {
+        // 고정 컬럼 검색
+        const code = accessoryCodeIdx !== -1 ? (row[accessoryCodeIdx] || '').toLowerCase() : '';
+        const name = accessoryNameIdx !== -1 ? (row[accessoryNameIdx] || '').toLowerCase() : '';
+        if (code.includes(query) || name.includes(query)) {
+          return true;
+        }
+        
+        // 동적 컬럼 검색
+        for (const headerInfo of dynamicHeadersInfo) {
+          const value = (row[headerInfo.index] || '').toLowerCase();
+          if (value.includes(query)) {
+            return true;
+          }
+        }
+        
+        return false;
+      });
+      
+      // 검색 결과로 테이블 렌더링 (페이지 1로 강제)
+      AppState.set('accessoriesMasterCurrentPage', 1);
+      renderFilteredAccessoriesViewTable(filteredData); // 필터링된 데이터 렌더링 함수 호출
+      
+      UI.showAlert('검색 결과', filteredData.length + '개의 결과가 검색되었습니다.', 'info');
+      UI.hideLoading();
+    }
+    
+    /**
+     * 필터링된 데이터로 테이블 렌더링 (검색용 - 동적 컬럼 지원)
+     */
+    function renderFilteredAccessoriesViewTable(filteredData) {
+      const $tableBody = $('#accessories-master-table');
+      const accessoriesUsageData = AppState.get('accessoriesUsageData') || [];
+      const usageHeaders = AppState.get('accessoriesUsageHeaders') || [];
+      const masterHeaders = AppState.get('accessoriesMasterHeaders') || [];
+      const dynamicHeadersInfo = AppState.get('dynamicAccessoryHeaders') || [];
+      const totalColumns = $('#accessories-master-table').prev('thead').find('th').length; // 헤더에서 총 컬럼 수 계산
+      
+      $tableBody.empty();
+      
+      if (filteredData.length === 0) {
+        $tableBody.html(`<tr><td colspan="${totalColumns}" class="text-center">검색 결과가 없습니다.</td></tr>`);
+        $('#accessories-master-pagination').empty();
+        return;
+      }
+      
+      // 사용 제품 수 계산 (기존과 동일)
+      const usageCounts = {};
+      const usageAccessoryCodeIdx = usageHeaders.indexOf('부자재코드');
+      const usageSabangCodeIdx = usageHeaders.indexOf('사방넷코드');
+      const accessoryProductMap = {};
+      if (usageAccessoryCodeIdx !== -1 && usageSabangCodeIdx !== -1) {
+        accessoriesUsageData.forEach(row => {
+          const code = row[usageAccessoryCodeIdx];
+          const sabangCode = row[usageSabangCodeIdx];
+          if (code && sabangCode) {
+            if (!accessoryProductMap[code]) accessoryProductMap[code] = new Set();
+            accessoryProductMap[code].add(sabangCode);
+          }
+        });
+        Object.keys(accessoryProductMap).forEach(code => { usageCounts[code] = accessoryProductMap[code].size; });
+      }
+      
+      // 고정 컬럼 인덱스
+      const accessoryCodeIdx = masterHeaders.indexOf('부자재코드');
+      const accessoryNameIdx = masterHeaders.indexOf('부자재명(한)');
+      
+      // 페이지네이션 (필터링된 데이터 기준)
+      const itemsPerPage = AppState.get('itemsPerPage');
+      const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+      const currentPage = AppState.get('accessoriesMasterCurrentPage'); // 검색 시 1페이지로 설정됨
+      const startIndex = (currentPage - 1) * itemsPerPage;
+      const endIndex = Math.min(startIndex + itemsPerPage, filteredData.length);
+      const pageData = filteredData.slice(startIndex, endIndex);
+      
+      const fragment = document.createDocumentFragment();
+      
+      pageData.forEach((row, idx) => {
+        const accessoryCode = row[accessoryCodeIdx] || '-';
+        const accessoryName = row[accessoryNameIdx] || '-';
+        const usageCount = usageCounts[accessoryCode] || 0;
+        
+        const $row = $(document.createElement('tr'));
+        
+        // 고정 컬럼 추가
+        $row.append(`<td>${accessoryCode}</td>`);
+        $row.append(`<td>${accessoryName}</td>`);
+        
+        // 동적 컬럼 추가 - 표시 설정된 컬럼만 추가
+        dynamicHeadersInfo.forEach(headerInfo => {
+          // visible 속성이 true인 헤더만 추가
+          if (headerInfo.visible !== false) {
+            const value = row[headerInfo.index] || '-';
+            $row.append(`<td>${value}</td>`);
+          }
+        });
+        
+        // 사용 제품 수 컬럼 추가
+        $row.append(`<td><button type="button" class="btn btn-link p-0 view-master-accessory-btn" data-code="${accessoryCode}"><span class="badge bg-${usageCount > 0 ? 'primary' : 'secondary'}">${usageCount}</span></button></td>`);
+        
+        // 액션 컬럼 추가
+        const $actions = $(document.createElement('td'));
+        $actions.addClass('table-actions');
+        $actions.html(`
+          <button class="btn btn-sm btn-outline-info view-master-accessory-btn" data-code="${accessoryCode}" title="상세 정보">
+            <i class="fas fa-eye"></i>
+          </button>
+          <button class="btn btn-sm btn-outline-primary edit-master-accessory-btn" data-code="${accessoryCode}" title="수정">
+            <i class="fas fa-edit"></i>
+          </button>
+          <button class="btn btn-sm btn-outline-danger delete-master-accessory-btn" data-code="${accessoryCode}" title="삭제">
+            <i class="fas fa-trash"></i>
+          </button>
+        `);
+        $row.append($actions);
+        fragment.appendChild($row[0]);
+      });
+      
+      $tableBody.append(fragment);
+      renderAccessoriesViewPagination(totalPages); // 필터링된 데이터 기준으로 페이지네이션
+    }
+
+    /**
+     * 헤더 설정 모달 표시
+     */
+    function showHeaderSettingsModal() {
+      // 현재 모든 동적 헤더 가져오기
+      const masterHeaders = AppState.get('accessoriesMasterHeaders') || [];
+      const coreHeaders = ['부자재코드', '부자재명(한)', '사용 제품 수', '액션']; // 고정 헤더
+      const dynamicHeaders = masterHeaders.filter(h => !coreHeaders.includes(h));
+      
+      // 현재 헤더 가시성 설정 가져오기
+      const headerVisibility = AppState.get('accessoriesHeaderVisibility') || {};
+      
+      // 모달 내용 생성
+      let modalContent = `
+        <div class="modal fade" id="header-settings-modal" tabindex="-1" aria-labelledby="header-settings-modal-label" aria-hidden="true">
+          <div class="modal-dialog">
+            <div class="modal-content">
+              <div class="modal-header">
+                <h5 class="modal-title" id="header-settings-modal-label">컬럼 표시 설정</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body">
+                <p>표시할 컬럼을 선택하세요:</p>
+                <div class="mb-3">
+                  <button id="select-all-headers" class="btn btn-sm btn-outline-primary me-2">모두 선택</button>
+                  <button id="deselect-all-headers" class="btn btn-sm btn-outline-secondary">모두 해제</button>
+                </div>
+                <div class="header-settings-container">`;
+      
+      // 동적 헤더를 인덱스 순으로 표시하기 위해 인덱스 정보와 함께 배열 생성
+      const indexedHeaders = dynamicHeaders.map(header => ({
+        header: header,
+        index: masterHeaders.indexOf(header)
+      }));
+      
+      // 인덱스 순으로 정렬
+      indexedHeaders.sort((a, b) => a.index - b.index);
+      
+      // 각 헤더에 대한 체크박스 추가 (인덱스 순으로 정렬됨)
+      indexedHeaders.forEach((item, idx) => {
+        const header = item.header;
+        const isChecked = headerVisibility[header] !== false;
+        // 고유한 ID 생성을 위해 인덱스 추가
+        const checkboxId = `header-checkbox-${idx}`;
+        modalContent += `
+          <div class="form-check">
+            <input class="form-check-input header-visibility-toggle" type="checkbox" 
+                  value="${header}" id="${checkboxId}" ${isChecked ? 'checked' : ''} 
+                  data-header="${header}">
+            <label class="form-check-label" for="${checkboxId}">
+              ${header}
+            </label>
+          </div>`;
+      });
+      
+      modalContent += `
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+                <button type="button" class="btn btn-primary" id="save-header-settings">적용</button>
+              </div>
+            </div>
+          </div>
+        </div>`;
+      
+      // 기존 모달 제거 및 새 모달 추가
+      $('#header-settings-modal').remove();
+      $('body').append(modalContent);
+      
+      // 이벤트 리스너 추가
+      $('#select-all-headers').on('click', function() {
+        $('.header-visibility-toggle').prop('checked', true);
+      });
+      
+      $('#deselect-all-headers').on('click', function() {
+        $('.header-visibility-toggle').prop('checked', false);
+      });
+      
+      $('#save-header-settings').on('click', function() {
+        const newVisibility = {};
+        
+        // 모든 체크박스를 순회하며 데이터 속성에서 헤더 이름 가져오기
+        $('.header-visibility-toggle').each(function() {
+          const header = $(this).data('header');
+          const isChecked = $(this).is(':checked');
+          if (header) {
+            newVisibility[header] = isChecked;
+          }
+        });
+        
+        // 설정 저장 및 테이블 재렌더링
+        AppState.set('accessoriesHeaderVisibility', newVisibility);
+        $('#header-settings-modal').modal('hide');
+        
+        // 헤더 다시 렌더링
+        renderAccessoriesViewHeader(masterHeaders);
+        
+        // 테이블 다시 렌더링
+        renderAccessoriesViewTable();
+      });
+      
+      // 모달 표시
+      const modal = new bootstrap.Modal(document.getElementById('header-settings-modal'));
+      modal.show();
+    }
+
+    // 유틸리티 함수: debounce
+    function debounce(func, wait, immediate) {
+      var timeout;
+      return function() {
+        var context = this, args = arguments;
+        var later = function() {
+          timeout = null;
+          if (!immediate) func.apply(context, args);
+        };
+        var callNow = immediate && !timeout;
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+        if (callNow) func.apply(context, args);
+      };
+    };
+
+</script>

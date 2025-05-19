@@ -1,0 +1,158 @@
+<script>
+
+    /**
+     * 데이터 관리 모듈 - 서버 데이터 로드 및 관리
+     */
+     const DataManager = {
+      /**
+       * 필드 정의와 그룹 정보 로드
+       * @returns {Promise} 완료 시 해결되는 Promise
+       */
+      loadFieldDefinitionsAndGroups() {
+        UI.showLoading();
+        
+        return ServerAPI.getFieldDefinitionsAndGroups()
+          .then(result => {
+            if (result.success) {
+              AppState.set('fieldDefinitions', result.fields);
+              AppState.set('fieldGroups', result.groups);
+              buildProductForm();
+              
+              // 필드 룩업 테이블 구성 - 성능 최적화
+              this.buildFieldLookupTable(result.fields);
+              
+              console.log(`필드 정의 및 그룹 로드 성공: ${result.fields.length}개 필드, ${Object.keys(result.groups).length}개 그룹`);
+              UI.hideLoading();
+              return result;
+            } else {
+              console.error("필드 정의 및 그룹 로드 실패:", result.message);
+              UI.showAlert('오류', result.message, 'danger');
+              UI.hideLoading();
+              throw new Error(result.message);
+            }
+          })
+          .catch(error => {
+            console.error("필드 정의 및 그룹 로드 오류:", error);
+            UI.showAlert('오류', error, 'danger');
+            UI.hideLoading();
+            throw error;
+          });
+      },
+      
+      /**
+       * 필드 룩업 테이블 구성 - 성능 최적화
+       * @param {Array} fields - 필드 정의 배열
+       */
+      buildFieldLookupTable(fields) {
+        // 필드명으로 필드 정의를 빠르게 찾기 위한 맵 구성
+        const fieldLookup = {};
+        fields.forEach(field => {
+          fieldLookup[field.field] = field;
+        });
+        
+        // 캐시에 저장
+        AppState.cache.set('fieldLookup', 'byName', fieldLookup);
+      },
+      
+      /**
+       * 모든 제품 데이터 로드
+       * @returns {Promise} 완료 시 해결되는 Promise
+       */
+      loadAllProductData() {
+        UI.showLoading();
+        
+        return ServerAPI.getAllProductData()
+          .then(result => {
+            if (result.success) {
+              AppState.set('headers', result.headers);
+              AppState.set('productData', result.data);
+              AppState.set('filteredProductData', [...result.data]); // 초기 필터링 데이터는 원본과 동일
+              
+              // 캐시 초기화
+              AppState.cache.clear('uniqueValues');
+              
+              console.log(`제품 데이터 로드 성공: ${result.data.length}개 행`);
+              UI.hideLoading();
+              return result;
+            } else {
+              console.error("제품 데이터 로드 실패:", result.message);
+              UI.showAlert('경고', result.message, 'warning');
+              UI.hideLoading();
+              throw new Error(result.message);
+            }
+          })
+          .catch(error => {
+            console.error("제품 데이터 로드 오류:", error);
+            UI.showAlert('오류', '데이터를 가져오는 중 오류가 발생했습니다: ' + error, 'danger');
+            UI.hideLoading();
+            throw error;
+          });
+      },
+      
+      /**
+       * 제품 데이터에서 고유한 값 추출 - 메모이제이션 적용
+       * @param {number} columnIndex - 열 인덱스
+       * @param {Array} dataArray - 데이터 배열
+       * @returns {Array} 고유한 값 배열
+       */
+      getUniqueValuesFromData(columnIndex, dataArray = AppState.get('productData')) {
+        if (columnIndex === -1) return [];
+        
+        // 캐시 확인
+        const cachedValues = AppState.cache.get('uniqueValues', `col_${columnIndex}`);
+        if (cachedValues) {
+          return cachedValues;
+        }
+        
+        // 캐시에 없으면 새로 계산
+        const uniqueValues = [...new Set(
+          dataArray
+            .map(row => row[columnIndex])
+            .filter(value => value !== null && value !== undefined && value.toString().trim() !== '')
+        )].sort();
+        
+        // 캐시에 저장
+        AppState.cache.set('uniqueValues', `col_${columnIndex}`, uniqueValues);
+        
+        return uniqueValues;
+      },
+      
+      /**
+       * 필드명으로 고유 값 목록 가져오기 - 메모이제이션 적용
+       * @param {string} fieldName - 필드명
+       * @returns {Array} 고유한 값 배열
+       */
+      getUniqueValuesByFieldName(fieldName) {
+        // 캐시 확인
+        const cachedValues = AppState.cache.get('uniqueValues', `field_${fieldName}`);
+        if (cachedValues) {
+          return cachedValues;
+        }
+        
+        const fieldIndex = AppState.get('headers').indexOf(fieldName);
+        const values = this.getUniqueValuesFromData(fieldIndex);
+        
+        // 캐시에 저장
+        AppState.cache.set('uniqueValues', `field_${fieldName}`, values);
+        
+        return values;
+      },
+      
+      /**
+       * 필드 정의 조회 - 룩업 테이블 사용
+       * @param {string} fieldName - 필드명
+       * @returns {Object|null} 필드 정의 객체 또는 null
+       */
+      getFieldDefinition(fieldName) {
+        const fieldLookup = AppState.cache.get('fieldLookup', 'byName');
+        if (fieldLookup && fieldLookup[fieldName]) {
+          return fieldLookup[fieldName];
+        }
+        
+        // 캐시에 없으면 배열에서 찾기
+        const fields = AppState.get('fieldDefinitions');
+        return fields.find(f => f.field === fieldName) || null;
+      }
+    };
+
+</script>

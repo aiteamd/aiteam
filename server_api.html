@@ -1,0 +1,269 @@
+<script>
+
+    /**
+     * 서버 API 모듈 - 서버와의 통신 처리
+     */
+     const ServerAPI = {
+      // 진행 중인 요청 추적
+      _pendingRequests: {},
+      
+      /**
+       * 서버 호출 래퍼 함수 - 중복 요청 방지 및 오류 처리 개선
+       * @param {string} functionName - 호출할 서버 함수 이름
+       * @param {Array} args - 함수 인자 배열
+       * @returns {Promise} API 호출 결과 Promise
+       */
+      callServer(functionName, ...args) {
+        // 요청 식별자 생성
+        const requestId = `${functionName}_${JSON.stringify(args)}`;
+        
+        // 진행 중인 동일 요청이 있으면 재사용
+        if (this._pendingRequests[requestId]) {
+          return this._pendingRequests[requestId];
+        }
+        
+        // 새 요청 생성
+        const request = new Promise((resolve, reject) => {
+          const startTime = Date.now();
+          
+          console.log(`API 호출: ${functionName}`, args);
+          
+          google.script.run
+            .withSuccessHandler(result => {
+              console.log(`API 응답: ${functionName} (${Date.now() - startTime}ms)`, result);
+              delete this._pendingRequests[requestId];
+              resolve(result);
+            })
+            .withFailureHandler(error => {
+              console.error(`API 오류: ${functionName}`, error);
+              delete this._pendingRequests[requestId];
+              reject(error);
+            })
+            [functionName](...args);
+        });
+        
+        // 요청 추적에 추가
+        this._pendingRequests[requestId] = request;
+        
+        return request;
+      },
+      
+      /**
+       * 초기 데이터 설정
+       * @returns {Promise} 결과 Promise
+       */
+      setupInitialData() {
+        return this.callServer('setupInitialData');
+      },
+      
+      /**
+       * 필드 정의와 그룹 가져오기
+       * @returns {Promise} 결과 Promise
+       */
+      getFieldDefinitionsAndGroups() {
+        return this.callServer('getFieldDefinitionsAndGroups');
+      },
+      
+      /**
+       * 모든 제품 데이터 가져오기
+       * @returns {Promise} 결과 Promise
+       */
+      getAllProductData() {
+        return this.callServer('getAllProductData');
+      },
+      
+      /**
+       * 제품 데이터 검색
+       * @param {string} query - 검색 쿼리
+       * @returns {Promise} 결과 Promise
+       */
+      searchProductData(query) {
+        return this.callServer('searchProductData', query);
+      },
+      
+      /**
+       * 제품 추가
+       * @param {Array} productData - 추가할 제품 데이터 배열
+       * @returns {Promise} 결과 Promise
+       */
+      addProductData(productData) {
+        return this.callServer('addProductData', productData);
+      },
+      
+      /**
+       * 사방넷 코드로 제품 가져오기
+       * @param {string} sabangCode - 사방넷 코드
+       * @returns {Promise} 결과 Promise
+       */
+      getProductBySabangCode(sabangCode) {
+        return this.callServer('getProductBySabangCode', sabangCode);
+      },
+      
+      /**
+       * 사방넷 코드로 제품 업데이트
+       * @param {string} sabangCode - 사방넷 코드
+       * @param {Array} productData - 제품 데이터 배열
+       * @returns {Promise} 결과 Promise
+       */
+      updateProductBySabangCode(sabangCode, productData) {
+        return this.callServer('updateProductBySabangCode', sabangCode, productData);
+      },
+      
+      /**
+       * 사방넷 코드로 제품 삭제
+       * @param {string} sabangCode - 사방넷 코드
+       * @returns {Promise} 결과 Promise
+       */
+      deleteProductBySabangCode(sabangCode) {
+        return this.callServer('deleteProductBySabangCode', sabangCode);
+      },
+      
+      /**
+       * 필드 정의 저장
+       * @param {Object} fieldData - 필드 데이터
+       * @returns {Promise} 결과 Promise
+       */
+      saveFieldDefinition(fieldData) {
+        return this.callServer('saveFieldDefinition', fieldData);
+      },
+      
+      /**
+       * 필드 정의 삭제
+       * @param {string} fieldName - 필드명
+       * @returns {Promise} 결과 Promise
+       */
+      deleteFieldDefinition(fieldName) {
+        return this.callServer('deleteFieldDefinition', fieldName);
+      },
+      
+      /**
+       * 스프레드시트 ID 가져오기
+       * @returns {Promise} 결과 Promise
+       */
+      getSpreadsheetId() {
+        return this.callServer('getSpreadsheetId');
+      },
+      
+      /**
+       * 모든 부자재 데이터 가져오기
+       * @returns {Promise} 결과 Promise
+       */
+      getAllAccessoriesData() {
+        return this.callServer('getAllAccessoriesData');
+      },
+      
+      /**
+       * 사방넷 코드로 부자재 데이터 가져오기
+       * @param {string} sabangCode - 사방넷 코드
+       * @returns {Promise} 결과 Promise
+       */
+      getAccessoriesBySabangCode(sabangCode) {
+        return this.callServer('getAccessoriesBySabangCode', sabangCode);
+      },
+      
+      /**
+       * 부자재 코드로 부자재 데이터 가져오기
+       * @param {string} accessoryCode - 부자재 코드
+       * @returns {Promise} 결과 Promise
+       */
+      getAccessoryByCode(accessoryCode) {
+        return this.callServer('getAccessoryByCode', accessoryCode);
+      },
+      
+      /**
+       * 모든 부자재 마스터 데이터 가져오기
+       * @returns {Promise} 결과 Promise
+       */
+      getAllAccessoriesMasterData() {
+        return this.callServer('getAllAccessoriesMasterData');
+      },
+      
+      /**
+       * 부자재 마스터 데이터 검색
+       * @param {string} query - 검색 쿼리
+       * @returns {Promise} 결과 Promise
+       */
+      searchAccessoriesMasterData(query) {
+        return this.callServer('searchAccessoriesMasterData', query);
+      },
+      
+      /**
+       * 부자재 코드로 부자재 마스터 데이터 가져오기
+       * @param {string} accessoryCode - 부자재 코드
+       * @returns {Promise} 결과 Promise
+       */
+      getMasterAccessoryByCode(accessoryCode) {
+        return this.callServer('getMasterAccessoryByCode', accessoryCode);
+      },
+      
+      /**
+       * 새 부자재 마스터 추가
+       * @param {Object} accessoryData - 부자재 데이터 객체
+       * @returns {Promise} 결과 Promise
+       */
+      addAccessoryMaster(accessoryData) {
+        return this.callServer('addAccessoryMaster', accessoryData);
+      },
+      
+      /**
+       * 기존 부자재 마스터 정보 업데이트
+       * @param {string} accessoryCode - 부자재 코드
+       * @param {Object} accessoryData - 업데이트할 부자재 데이터
+       * @returns {Promise} 결과 Promise
+       */
+      updateAccessoryMaster(accessoryCode, accessoryData) {
+        return this.callServer('updateAccessoryMaster', accessoryCode, accessoryData);
+      },
+      
+      /**
+       * 부자재 마스터 삭제
+       * @param {string} accessoryCode - 삭제할 부자재 코드
+       * @returns {Promise} 결과 Promise
+       */
+      deleteAccessoryMaster(accessoryCode) {
+        return this.callServer('deleteAccessoryMaster', accessoryCode);
+      },
+      
+      /**
+       * 부자재가 제품에서 사용 중인지 확인
+       * @param {string} accessoryCode - 부자재 코드
+       * @returns {Promise} 결과 Promise
+       */
+      isAccessoryInUse(accessoryCode) {
+        return this.callServer('isAccessoryInUse', accessoryCode);
+      },
+      
+      /**
+       * 특정 제품에 부자재 정보 추가
+       * @param {string} sabangCode - 사방넷 코드
+       * @param {string} accessoryCode - 부자재 코드
+       * @param {Object} accessoryInfo - 부자재 정보 (수량 등)
+       * @returns {Promise} 결과 Promise
+       */
+      addProductAccessory(sabangCode, accessoryCode, accessoryInfo) {
+        return this.callServer('addProductAccessory', sabangCode, accessoryCode, accessoryInfo);
+      },
+      
+      /**
+       * 제품의 부자재 정보 업데이트
+       * @param {string} sabangCode - 사방넷 코드
+       * @param {string} accessoryCode - 부자재 코드
+       * @param {Object} accessoryInfo - 업데이트할 부자재 정보
+       * @returns {Promise} 결과 Promise
+       */
+      updateProductAccessory(sabangCode, accessoryCode, accessoryInfo) {
+        return this.callServer('updateProductAccessory', sabangCode, accessoryCode, accessoryInfo);
+      },
+      
+      /**
+       * 제품의 부자재 정보 삭제
+       * @param {string} sabangCode - 사방넷 코드
+       * @param {string} accessoryCode - 부자재 코드
+       * @returns {Promise} 결과 Promise
+       */
+      deleteProductAccessory(sabangCode, accessoryCode) {
+        return this.callServer('deleteProductAccessory', sabangCode, accessoryCode);
+      }
+    };
+
+</script>

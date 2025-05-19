@@ -1,0 +1,290 @@
+ <script>
+
+    /**
+     * UI 모듈 - 사용자 인터페이스 관련 함수
+     */
+     const UI = {
+      // 알림 카운터 - 알림 ID 생성용
+      _alertCounter: 0,
+      
+      // 활성 알림 추적
+      _activeAlerts: {},
+      
+      /**
+       * 로딩 인디케이터 표시
+       */
+      showLoading() {
+        $('#' + DOM.loading).removeClass('d-none');
+      },
+      
+      /**
+       * 로딩 인디케이터 숨김
+       */
+      hideLoading() {
+        $('#' + DOM.loading).addClass('d-none');
+      },
+      
+      /**
+       * 알림 메시지 표시 - 최적화 버전
+       * @param {string} title - 알림 제목
+       * @param {string} message - 알림 메시지
+       * @param {string} type - 알림 유형 ('success', 'info', 'warning', 'danger')
+       * @param {number} [timeout] - 알림 표시 시간 (ms, 0이면 자동 닫기 없음)
+       * @returns {string} 알림 ID
+       */
+      showAlert(title, message, type, timeout) {
+        const $container = $('#' + DOM.containers.alert);
+        
+        // 동일 타입 알림 제거
+        $(`.alert-${type}`).alert('close');
+        
+        // 알림 ID 생성
+        const alertId = 'alert-' + (++this._alertCounter);
+        
+        // 알림 요소 생성 - 문자열 템플릿보다 효율적인 DOM 생성 방식 사용
+        const $alert = $('<div>', {
+          id: alertId,
+          class: `alert alert-${type} alert-dismissible fade show slide-in`,
+          role: 'alert'
+        });
+        
+        $('<strong>').text(title).appendTo($alert);
+        $alert.append(` ${message}`);
+        
+        $('<button>', {
+          type: 'button',
+          class: 'btn-close',
+          'data-bs-dismiss': 'alert',
+          'aria-label': 'Close'
+        }).appendTo($alert);
+        
+        // 컨테이너에 알림 추가
+        $container.append($alert);
+        
+        // 알림 추적에 추가
+        this._activeAlerts[alertId] = $alert;
+        
+        // timeout이 0이면 자동으로 닫지 않음
+        if (timeout !== 0) {
+          // 기본값: 5초 후 자동으로 사라짐
+          setTimeout(() => {
+            this.closeAlert(alertId);
+          }, timeout || Settings.timeout.alert);
+        }
+        
+        return alertId;
+      },
+      
+      /**
+       * 알림 닫기
+       * @param {string} alertId - 알림 ID
+       */
+      closeAlert(alertId) {
+        if (this._activeAlerts[alertId]) {
+          this._activeAlerts[alertId].alert('close');
+          delete this._activeAlerts[alertId];
+        }
+      },
+      
+      /**
+       * 모바일용 제품 상세 보기 최적화
+       */
+      optimizeProductDetailsForMobile() {
+        // 모바일 화면 여부 확인 (뷰포트 너비 768px 미만)
+        const isMobile = window.innerWidth < 768;
+        
+        if (isMobile) {
+          // 모바일에서는 요약 정보를 단일 컬럼으로 표시
+          $('.product-summary .col-md-3').removeClass('col-md-3').addClass('col-12');
+          
+          // 필드 카드를 2열로 표시
+          $('.field-card').closest('.col-md-3').removeClass('col-md-3').addClass('col-6'); 
+          
+          // 탭 스크롤 가능하게 설정
+          $('#productDetailTabs').addClass('flex-nowrap overflow-auto');
+          $('#productDetailTabs .nav-item').css('white-space', 'nowrap');
+          
+          // 모달 헤더 간소화
+          $('.modal-header .ms-auto').css('flex-direction', 'column');
+          
+          // 탭 내용 패딩 조정
+          $('.tab-pane').addClass('px-0');
+        } else {
+          // 데스크톱에서는 원래 레이아웃으로
+          $('.product-summary .col-12').removeClass('col-12').addClass('col-md-3');
+          $('.field-card').closest('.col-6').removeClass('col-6').addClass('col-md-3');
+          $('#productDetailTabs').removeClass('flex-nowrap overflow-auto');
+          $('#productDetailTabs .nav-item').css('white-space', '');
+          $('.modal-header .ms-auto').css('flex-direction', '');
+          $('.tab-pane').removeClass('px-0');
+        }
+      },
+      
+      /**
+       * 모바일용 제품 폼 최적화
+       */
+      optimizeProductFormForMobile() {
+        const isMobile = window.innerWidth < 768;
+        
+        if (isMobile) {
+          // 폼 필드를 모바일에서 전체 너비로 표시
+          $('.form-group').closest('.col-md-3').removeClass('col-md-3').addClass('col-12');
+          
+          // 스텝 네비게이션 최적화
+          $('.stepper-container').css('padding', '10px 5px');
+          
+          // 버튼 텍스트 간소화
+          $('.btn-prev').html('<i class="fas fa-chevron-left"></i>');
+          $('.btn-next').html('<i class="fas fa-chevron-right"></i>');
+          
+          // 폼 그룹 카드 여백 조정
+          $('.field-step .card-body').css('padding', '0.75rem');
+        } else {
+          // 데스크톱에서는 원래 레이아웃으로
+          $('.form-group').closest('.col-12').removeClass('col-12').addClass('col-md-3');
+          $('.stepper-container').css('padding', '');
+          $('.btn-prev').html('<i class="fas fa-chevron-left me-2"></i>이전');
+          $('.btn-next').html('다음<i class="fas fa-chevron-right ms-2"></i>');
+          $('.field-step .card-body').css('padding', '');
+        }
+      },
+      
+      /**
+       * DOM 엘리먼트 생성 - 최적화된 방식
+       * @param {string} tagName - 태그 이름
+       * @param {Object} attributes - 속성
+       * @param {Array|string|Element} [children] - 자식 요소
+       * @returns {jQuery} 생성된 jQuery 요소
+       */
+      createElement(tagName, attributes = {}, children = null) {
+        const $element = $('<' + tagName + '>', attributes);
+        
+        if (children) {
+          if (Array.isArray(children)) {
+            children.forEach(child => {
+              if (child) $element.append(child);
+            });
+          } else {
+            $element.append(children);
+          }
+        }
+        
+        return $element;
+      },
+      
+      /**
+       * 테이블 행 생성 - 최적화된 방식
+       * @param {Array} cells - 셀 내용 배열
+       * @param {Object} [rowAttributes] - 행 속성
+       * @returns {jQuery} 생성된 행 요소
+       */
+      createTableRow(cells, rowAttributes = {}) {
+        const $row = $('<tr>', rowAttributes);
+        
+        cells.forEach(cell => {
+          if (typeof cell === 'string' || typeof cell === 'number') {
+            $row.append($('<td>').html(cell));
+          } else {
+            $row.append(cell);
+          }
+        });
+        
+        return $row;
+      }
+    };
+
+    /**
+     * 업데이트 알림 표시
+     * @param {string} sabangCode - 사방넷 코드
+     */
+     function showUpdateNotification(sabangCode) {
+      // 기존 알림 제거
+      $('#update-notification').remove();
+      
+      // 알림 생성
+      const $notification = $(`
+        <div id="update-notification" class="alert alert-info alert-dismissible fade show fixed-top w-75 mx-auto mt-3 shadow">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <i class="fas fa-sync-alt me-2"></i>
+              <strong>업데이트 알림:</strong> 현재 보고 있는 제품 정보가 다른 사용자에 의해 변경되었습니다.
+            </div>
+            <div>
+              <button type="button" class="btn btn-sm btn-primary me-2" id="reload-data-btn">
+                <i class="fas fa-sync me-1"></i>새로고침
+              </button>
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+          </div>
+        </div>
+      `);
+      
+      // 알림을 DOM에 추가
+      $('body').append($notification);
+      
+      // 새로고침 버튼 이벤트
+      $('#reload-data-btn').on('click', function() {
+        $('#update-notification').alert('close');
+        
+        // 현재 뷰에 따라 다른 새로고침 로직
+        const currentView = getCurrentView();
+        
+        if (currentView === 'add-product' && AppState.get('currentSabangCode') === sabangCode) {
+          // 편집 중인 제품인 경우 - 최신 데이터 로드
+          retrieveProductData(sabangCode, AppState.get('currentRowIndex'))
+            .then(() => {
+              UI.showAlert('데이터 업데이트', '최신 제품 정보가 로드되었습니다.', 'success');
+            });
+        } else if (currentView === 'products') {
+          // 제품 목록 보기에서는 전체 목록 새로고침
+          DataManager.loadAllProductData()
+            .then(() => {
+              renderProductsTable();
+              UI.showAlert('데이터 업데이트', '제품 목록이 새로고침되었습니다.', 'success');
+            });
+        } else if ($(DOM.modals.productDetails).hasClass('show')) {
+          // 제품 상세 모달에서는 해당 제품 정보 다시 로드
+          $(DOM.modals.productDetails).modal('hide');
+          setTimeout(() => {
+            showProductDetails(sabangCode);
+          }, 500);
+        }
+      });
+      
+      // 5초 후 자동으로 사라짐
+      setTimeout(() => {
+        $('#update-notification').alert('close');
+      }, 5000);
+    }
+    
+    /**
+     * 작은 알림 표시
+     * @param {string} message - 알림 메시지
+     */
+    function showSmallNotification(message) {
+      // 기존 알림 제거
+      $('#small-notification').remove();
+      
+      // 작은 알림 생성
+      const $notification = $(`
+        <div id="small-notification" class="toast align-items-center text-white bg-primary border-0 position-fixed bottom-0 end-0 m-3" role="alert" aria-live="assertive" aria-atomic="true">
+          <div class="d-flex">
+            <div class="toast-body">
+              <i class="fas fa-info-circle me-2"></i>${message}
+            </div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+          </div>
+        </div>
+      `);
+      
+      // 알림을 DOM에 추가
+      $('body').append($notification);
+      
+      // 토스트 표시
+      const toast = new bootstrap.Toast($notification[0], {
+        delay: 3000
+      });
+      toast.show();
+    }
+
+ </script>

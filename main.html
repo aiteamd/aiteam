@@ -1,0 +1,828 @@
+<script>
+
+    /**
+     * 페이지 로드 시 실행되는 초기화 함수
+     * DOM 요소가 로드된 후 호출됨
+     */
+     $(document).ready(function() {
+      console.log("페이지 로드 시작");
+      
+      // 전역 함수로 등록
+      window.showView = showView;
+      
+      // 로컬 스토리지에서 설정 로드
+      loadSettings();
+      
+      // 이벤트 리스너 설정 (위임 패턴 적용)
+      setupEventListeners();
+      
+      // 안전 장치: 30초 후 자동으로 로딩 인디케이터 제거
+      const globalLoadingTimeout = setTimeout(function() {
+        console.log("초기 로딩 타임아웃 - 강제로 로딩 인디케이터 제거");
+        UI.hideLoading();
+        UI.showAlert('알림', '데이터 로드에 시간이 오래 걸립니다. 일부 기능이 제한될 수 있습니다.', 'warning');
+        
+        // 그래도 기본 대시보드는 표시
+        showView('dashboard');
+      }, Settings.timeout.loading);
+      
+      // 수동 로딩 중단 버튼 이벤트 리스너
+      $('#manual-stop-loading').on('click', function() {
+        clearTimeout(globalLoadingTimeout);
+        UI.hideLoading();
+        UI.showAlert('알림', '로딩이 수동으로 중단되었습니다. 일부 기능이 제한될 수 있습니다.', 'info');
+        showView('dashboard');
+      });
+      
+      // 시스템 초기화 함수 호출
+      initializeSystem(globalLoadingTimeout);
+    });
+
+    /**
+     * 시스템 초기화 - 서버 설정 및 데이터 로드
+     * @param {number} timeoutId - 로딩 타임아웃 ID (필요시 취소)
+     */
+     function initializeSystem(timeoutId) {
+      try {
+        // API 메서드 확장
+        extendServerAPI();
+        
+        // 서버 초기화 및 데이터 로드 - Promise 체인 최적화
+        Promise.all([
+          ServerAPI.setupInitialData(),
+          UserPermissions.initialize()
+        ])
+        .then(() => DataManager.loadFieldDefinitionsAndGroups())
+        .then(() => DataManager.loadAllProductData())
+        .then(() => {
+          // 모든 초기화 작업 완료
+          console.log("초기화 완료 - 데이터 렌더링");
+          renderProductsTable();
+          updateDashboard();
+          updateFieldsTable();
+          showView('dashboard');
+          
+          // 로딩 제거 및 타임아웃 해제
+          clearTimeout(timeoutId);
+          UI.hideLoading();
+          
+          // UI 향상 기능 초기화
+          initializeUIEnhancements();
+        })
+        .catch(error => {
+          console.error("초기화 과정 오류:", error);
+          
+          // 오류가 있어도 기본 UI는 표시
+          showView('dashboard');
+          
+          // 로딩 제거 및 타임아웃 해제
+          clearTimeout(timeoutId);
+          UI.hideLoading();
+        });
+      } catch (error) {
+        console.error("초기화 중 예외 발생:", error);
+        UI.showAlert('오류', '시스템 초기화 중 오류가 발생했습니다: ' + error, 'danger');
+        
+        // 오류가 있어도 기본 UI는 표시
+        showView('dashboard');
+        
+        // 로딩 제거 및 타임아웃 해제
+        clearTimeout(timeoutId);
+        UI.hideLoading();
+      }
+    }
+    
+    /**
+     * ServerAPI 확장 - 필요한 메서드 추가
+     */
+    function extendServerAPI() {
+      // 권한 관련 함수 추가
+      ServerAPI.getUserPermissionInfo = function() {
+        return this.callServer('getUserPermissionInfo');
+      };
+    
+      ServerAPI.updateFieldManagementUsers = function(userEmails) {
+        return this.callServer('updateFieldManagementUsers', userEmails);
+      };
+    
+      // 필드 하위 그룹 관련 함수 추가
+      ServerAPI.saveFieldSubGroupInfo = function(fieldName, subGroup, subGroupOrder) {
+        return this.callServer('saveFieldSubGroupInfo', fieldName, subGroup, subGroupOrder);
+      };
+    
+      ServerAPI.getSubGroupsByGroup = function() {
+        return this.callServer('getSubGroupsByGroup');
+      };
+    
+      // 부자재 관련 함수 추가
+      ServerAPI.getAllAccessoriesData = function() {
+        return this.callServer('getAllAccessoriesData');
+      };
+      
+      ServerAPI.searchAccessoriesData = function(query) {
+        return this.callServer('searchAccessoriesData', query);
+      };
+      
+      ServerAPI.getAccessoriesBySabangCode = function(sabangCode) {
+        return this.callServer('getAccessoriesBySabangCode', sabangCode);
+      };
+      
+      ServerAPI.getAccessoryByCode = function(accessoryCode) {
+        return this.callServer('getAccessoryByCode', accessoryCode);
+      };
+    
+      // 히스토리 API 추가
+      ServerAPI.getProductChangeHistory = function(sabangCode) {
+        return this.callServer('getProductChangeHistory', sabangCode);
+      };
+    
+      // 문서 관리 관련 API 추가
+      ServerAPI.getDocumentsByProduct = function(sabangCode) {
+        return this.callServer('getDocumentsByProductAPI', sabangCode);
+      };
+    
+      ServerAPI.getDocumentTypes = function() {
+        return this.callServer('getDocumentTypesAPI');
+      };
+    
+      ServerAPI.addDocumentType = function(documentType, description, required) {
+        return this.callServer('addDocumentTypeAPI', documentType, description, required);
+      };
+    
+      ServerAPI.deleteDocumentType = function(documentType) {
+        return this.callServer('deleteDocumentTypeAPI', documentType);
+      };
+    
+      ServerAPI.getDocumentDownloadUrl = function(fileId) {
+        return this.callServer('getDocumentDownloadUrlAPI', fileId);
+      };
+    
+      ServerAPI.uploadDocumentFile = function(sabangCode, documentType, fileName, base64Data) {
+        return this.callServer('uploadDocumentFile', sabangCode, documentType, fileName, base64Data);
+      };
+    
+      ServerAPI.lockProductForEditing = function(sabangCode) {
+        // 사용자 이메일은 서버에서 Session 객체를 통해 얻도록 수정
+        return this.callServer('lockProductForEditing', sabangCode);
+      };
+    
+      ServerAPI.checkProductLock = function(sabangCode) {
+        return this.callServer('checkProductLock', sabangCode);
+      };
+    
+      ServerAPI.unlockProduct = function(sabangCode) {
+        // 사용자 이메일은 서버에서 Session 객체를 통해 얻도록 수정
+        return this.callServer('unlockProduct', sabangCode);
+      };
+    
+      ServerAPI.getLastUpdatedTimestamps = function(since) {
+        return this.callServer('getLastUpdatedTimestamps', since);
+      };
+
+      // 부자재-제품 매핑 업데이트 함수 추가
+      ServerAPI.updateAccessoryProductMappings = function(accessoryCode, productSabangCodes) {
+        return this.callServer('updateAccessoryProductMappings', accessoryCode, productSabangCodes);
+      };
+    }
+    
+    
+    
+    /**
+     * 설정 로드
+     */
+    function loadSettings() {
+      // 로컬 스토리지에서 페이지당 항목 수 로드
+      const savedItemsPerPage = localStorage.getItem(Settings.storageKeys.itemsPerPage);
+      if (savedItemsPerPage) {
+        AppState.set('itemsPerPage', parseInt(savedItemsPerPage));
+        $('#items-per-page').val(AppState.get('itemsPerPage'));
+      }
+      
+      // 테마 설정 로드
+      const savedTheme = localStorage.getItem(Settings.storageKeys.theme);
+      if (savedTheme === 'dark') {
+        $('body').addClass('dark-mode');
+        $('#theme-select').val('dark');
+      }
+    }
+    
+    /**
+     * 이벤트 리스너 설정 - 이벤트 위임 패턴 적용
+     */
+    function setupEventListeners() {
+      console.log("이벤트 리스너 설정 시작");
+      
+      // 사이드바 네비게이션 - 이벤트 위임 패턴 적용
+      $('#sidebar').on('click', '.nav-link', function(e) {
+        e.preventDefault();
+        const linkId = $(this).attr('id');
+        
+        if (linkId === 'dashboard-link') {
+          showView('dashboard');
+        } else if (linkId === 'products-link') {
+          showView('products');
+        } else if (linkId === 'accessories-link') {
+          showView('accessories');
+          loadAccessoriesViewData();
+        } else if (linkId === 'add-product-link') {
+          DataManager.loadFieldDefinitionsAndGroups()
+            .then(() => {
+              initializeAddProductView();
+            });
+        } else if (linkId === 'field-management-link') {
+          if (UserPermissions.hasFieldManagementAccess()) {
+            showView('field-management');
+            DataManager.loadFieldDefinitionsAndGroups().then(updateFieldsTable);
+          } else {
+            UI.showAlert('접근 제한', '필드 관리 페이지에 접근할 권한이 없습니다.', 'warning');
+          }
+        } else if (linkId === 'export-link') {
+          exportData();
+        } else if (linkId === 'settings-link') {
+          setupSettingsModal();
+          $('#settings-modal').modal('show');
+        }
+      });
+      
+      // 제품 폼 제출
+      $('#product-form').on('submit', function(e) {
+        e.preventDefault();
+        saveProduct();
+      });
+      
+      // 취소 버튼
+      $('#cancel-button').on('click', function() {
+        if (AppState.get('formChanged')) {
+          if (confirm('변경 사항이 저장되지 않았습니다. 취소하시겠습니까?')) {
+            if (window.unlockCurrentProduct) window.unlockCurrentProduct();
+            showView('products');
+          }
+        } else {
+          if (window.unlockCurrentProduct) window.unlockCurrentProduct();
+          showView('products');
+        }
+      });
+    
+      // 필드 타입 변경 시 옵션 컨테이너 표시/숨김
+      $('#field-type').on('change', function() {
+        const type = $(this).val();
+        $('#options-container').toggleClass('d-none', type !== 'select');
+      });
+    
+      // 새 필드 추가 버튼
+      $(document).on('click', '#add-field-button', function() {
+        setupFieldModal('add');
+      });
+    
+      // 필드 저장 버튼
+      $('#save-field-button').on('click', saveFieldDefinition);
+      
+      // 설정 저장 버튼
+      $('#save-settings-button').on('click', saveSettings);
+      
+      // 폼 필드 변경 감지 - 이벤트 위임 사용
+      $('#product-form').on('input change', function(e) {
+        if (e.target.classList.contains('form-control') || 
+            e.target.classList.contains('form-select') ||
+            e.target.type === 'checkbox') {
+          AppState.set('formChanged', true);
+        }
+      });
+      
+      // 제품 테이블 액션 버튼 - 이벤트 위임 패턴 적용
+      $('#' + DOM.tables.products).parent().on('click', '.view-btn, .edit-btn, .delete-btn', function() {
+        const sabangCode = $(this).data('sabang');
+        const rowIndex = parseInt($(this).data('index') || -1);
+        if ($(this).hasClass('view-btn')) showProductDetails(sabangCode);
+        else if ($(this).hasClass('edit-btn')) editProduct(sabangCode, rowIndex);
+        else if ($(this).hasClass('delete-btn')) confirmDeleteProduct(sabangCode);
+      });
+      
+      // 제품 목록 페이지네이션 이벤트 - 이벤트 위임 패턴 적용
+      $('#pagination').on('click', '.page-link', function(e) {
+        e.preventDefault();
+        const page = parseInt($(this).data('page'));
+        const totalPages = Math.ceil(AppState.get('filteredProductData').length / AppState.get('itemsPerPage'));
+        if (page >= 1 && page <= totalPages) {
+          AppState.set('currentPage', page);
+          renderProductsTable();
+          $('html, body').animate({ scrollTop: $('#products-view').offset().top - 20 }, 300);
+        }
+      });
+      
+      // 삭제 확인 모달 이벤트
+      $('#confirm-delete-button').on('click', function() {
+        deleteProduct(AppState.get('currentSabangCode'));
+        $('#delete-confirm-modal').modal('hide');
+      });
+      
+      // 필드 관리 테이블 이벤트 - 이벤트 위임 패턴 적용
+      $('#' + DOM.tables.fields).on('click', '.field-view-btn, .field-edit-btn, .field-delete-btn', function() {
+        const fieldName = $(this).data('field');
+        if ($(this).hasClass('field-view-btn')) viewFieldDetails(fieldName);
+        else if ($(this).hasClass('field-edit-btn')) editField(fieldName);
+        else if ($(this).hasClass('field-delete-btn')) confirmDeleteField(fieldName);
+      });
+      
+      // ===== 부자재 관련 이벤트 리스너 (통합) =====
+      
+      // 부자재 검색 버튼 클릭 이벤트
+      $('#accessories-master-search-button').on('click', function() {
+        searchAccessoriesView();
+      });
+      
+      // 부자재 검색 엔터 키 이벤트
+      $('#accessories-master-search-input').on('keypress', function(e) {
+        if (e.which === 13) {
+          searchAccessoriesView();
+        }
+      });
+      
+      // 부자재 새로고침 버튼 클릭 이벤트
+      $('#accessories-master-refresh-button').on('click', function() {
+        loadAccessoriesViewData();
+      });
+      
+      // 부자재 테이블 액션 버튼 이벤트 (상세보기, 수정, 삭제)
+      $('#accessories-master-table').on('click', '.view-master-accessory-btn, .edit-master-accessory-btn, .delete-master-accessory-btn', function() {
+        const accessoryCode = $(this).data('code');
+        if ($(this).hasClass('view-master-accessory-btn')) {
+          showAccessoryDetails(accessoryCode);
+        } else if ($(this).hasClass('edit-master-accessory-btn')) {
+          showEditAccessoryMasterModal(accessoryCode);
+        } else if ($(this).hasClass('delete-master-accessory-btn')) {
+          confirmDeleteAccessoryMaster(accessoryCode);
+        }
+      });
+      
+      // 부자재 페이지네이션 클릭 이벤트
+      $('#accessories-master-pagination').on('click', '.page-link', function(e) {
+        e.preventDefault();
+        const page = parseInt($(this).data('page'));
+        const accessoriesMasterData = AppState.get('accessoriesMasterData') || []; 
+        const totalPages = Math.ceil(accessoriesMasterData.length / AppState.get('itemsPerPage'));
+        
+        if (page >= 1 && page <= totalPages) {
+          AppState.set('accessoriesMasterCurrentPage', page);
+          renderAccessoriesViewTable();
+          $('html, body').animate({ scrollTop: $('#accessories-view').offset().top - 20 }, 300);
+        }
+      });
+
+      // 부자재 추가 버튼 클릭 이벤트
+      $('#add-accessory-master-btn').on('click', function() {
+        showAddAccessoryMasterModal();
+      });
+      
+      // 부자재 저장 버튼 클릭 이벤트 (추가/수정 모달 내)
+      $('#save-accessory-master-btn').on('click', function() {
+        saveAccessoryMaster();
+      });
+      
+      // 부자재 삭제 확인 버튼 클릭 이벤트 (삭제 확인 모달 내)
+      $('#confirm-delete-accessory-master-btn').on('click', function() {
+        deleteAccessoryMaster();
+      });
+      
+      // 부자재 상세 모달 내 수정 버튼 클릭 이벤트
+      $(document).on('click', '.edit-master-accessory-modal-btn', function() {
+        const accessoryCode = $(this).data('code');
+        if (accessoryCode) {
+           $('#accessory-details-modal').modal('hide');
+           setTimeout(function() {
+             showEditAccessoryMasterModal(accessoryCode);
+           }, 500);
+        } else {
+           console.error('수정할 부자재 코드를 찾을 수 없습니다.');
+        }
+      });
+
+      // 부자재 상세 모달 내 사용 제품 목록의 '보기' 버튼 클릭 이벤트
+      $(document).on('click', '#accessory-products-table .view-product-btn', function() {
+        const sabangCode = $(this).data('sabang');
+        $('#accessory-details-modal').modal('hide');
+        setTimeout(() => {
+          showProductDetails(sabangCode);
+        }, 500);
+      });
+
+      // 제품 상세 모달 내 부자재 테이블의 '상세' 버튼 클릭 이벤트
+      $(document).on('click', '#product-accessories-table .view-master-accessory-from-product-btn', function() {
+        const accessoryCode = $(this).data('code');
+        const productModal = bootstrap.Modal.getInstance(document.getElementById('product-details-modal'));
+        if (productModal) {
+          productModal.hide();
+          $('.modal-backdrop').remove();
+          $('body').removeClass('modal-open').css('overflow', '').css('padding-right', '');
+        }
+        setTimeout(() => {
+          showAccessoryDetails(accessoryCode);
+        }, 600);
+      });
+      
+      console.log("이벤트 리스너 설정 완료");
+    }
+    
+    /**
+     * 설정 모달 초기화
+     */
+    function setupSettingsModal() {
+      // 기존 설정 값 표시
+      $('#items-per-page').val(AppState.get('itemsPerPage'));
+      
+      const isDarkMode = $('body').hasClass('dark-mode');
+      $('#theme-select').val(isDarkMode ? 'dark' : 'light');
+      
+      // 관리자인 경우만 권한 관리 섹션 표시
+      if (UserPermissions.hasFieldManagementAccess()) {
+        // 권한 관리 섹션이 없으면 추가
+        if ($('#permission-management-section').length === 0) {
+          const $permissionSection = $(`
+            <div id="permission-management-section" class="mt-4 border-top pt-3">
+              <h5>권한 관리</h5>
+              <div class="mb-3">
+                <label for="field-management-users" class="form-label">필드 관리 권한 사용자 (쉼표로 구분)</label>
+                <textarea class="form-control" id="field-management-users" rows="3" 
+                          placeholder="example1@example.com, example2@example.com"></textarea>
+                <small class="form-text text-muted">입력한 이메일 사용자만 필드 관리 메뉴에 접근할 수 있습니다.</small>
+              </div>
+            </div>
+          `);
+          
+          // 설정 모달에 추가
+          $('#settings-form').append($permissionSection);
+        }
+        
+        // 현재 권한 사용자 목록 설정
+        $('#field-management-users').val(UserPermissions.getUsers().join(', '));
+      } else {
+        // 관리자가 아닌 경우 권한 관리 섹션 제거
+        $('#permission-management-section').remove();
+      }
+    }
+
+    /**
+     * 뷰 전환 - 부자재 뷰 추가
+     * @param {string} viewName - 표시할 뷰 이름
+     */
+     function showView(viewName) {
+      console.log("뷰 전환: " + viewName);
+      
+      try {
+        if (viewName !== 'add-product' && AppState.get('currentSabangCode')) {
+          if (window.unlockCurrentProduct) {
+            window.unlockCurrentProduct();
+            console.log("제품 잠금 해제 완료: " + AppState.get('currentSabangCode'));
+          }
+        }
+        
+        $('.nav-link').removeClass('active');
+        if (viewName === 'accessories') {
+          $('#accessories-link').addClass('active');
+        } else {
+          $('#' + viewName + '-link').addClass('active');
+        }
+        
+        $('.content-view').addClass('d-none');
+        $('#' + viewName + '-view').removeClass('d-none');
+        
+        let title;
+        switch(viewName) {
+          case 'dashboard':
+            title = '대시보드';
+            updateDashboard();
+            break;
+          case 'products':
+            title = '제품 목록';
+            if ($('#search-filter-section').length === 0) {
+              enhanceProductListSearch();
+            }
+            if ($('#filter-panel').length > 0 && $('#filter-brand option').length <= 1) {
+              populateFilterOptions();
+            }
+            break;
+          case 'accessories':
+            title = '부자재 목록';
+            if (!AppState.get('accessoriesMasterData')) {
+              loadAccessoriesViewData();
+            }
+            break;
+          case 'add-product':
+            title = AppState.get('currentRowIndex') === -1 ? '제품 추가' : '제품 수정';
+            setTimeout(() => {
+              UI.optimizeProductFormForMobile();
+              setupFormAutoComplete();
+            }, 100);
+            break;
+          case 'field-management':
+            title = '필드 관리';
+            break;
+          default:
+            title = '제품 관리 시스템';
+        }
+        $('#page-title').text(title);
+        
+        console.log('뷰 전환 완료: ' + viewName + ', 제목: ' + title);
+        $(document).trigger('view:shown', [viewName]);
+      } catch (error) {
+        console.error("뷰 전환 오류: ", error);
+      }
+    }
+
+    /**
+     * 주기적 폴링 설정
+     */
+     function setupPolling() {
+      // 마지막 확인 시간
+      let lastCheckTime = new Date().getTime();
+      
+      // 이미 설정된 폴링 인터벌이 있으면 제거
+      if (window.pollingInterval) {
+        clearInterval(window.pollingInterval);
+      }
+      
+      // 자동 폴링 세팅 (2분마다)
+      window.pollingInterval = setInterval(() => {
+        // 현재 사방넷 코드 확인
+        const currentSabangCode = AppState.get('currentSabangCode');
+        
+        // 최근 변경 사항 확인
+        ServerAPI.getLastUpdatedTimestamps(lastCheckTime)
+          .then(result => {
+            if (result.success && Object.keys(result.timestamps).length > 0) {
+              // 변경된 항목이 있음
+              const changedItems = Object.keys(result.timestamps);
+              
+              // 현재 편집 중인 제품이 변경되었는지 확인
+              if (currentSabangCode && changedItems.includes(currentSabangCode)) {
+                // 현재 보고 있는 제품이 변경됨 - 알림 표시
+                showUpdateNotification(currentSabangCode);
+              } else if (changedItems.length > 0) {
+                // 다른 제품들이 변경됨 - 작은 알림 표시
+                const count = changedItems.length;
+                showSmallNotification(`${count}개의 제품이 업데이트되었습니다.`);
+              }
+              
+              // 마지막 확인 시간 업데이트
+              lastCheckTime = new Date().getTime();
+            }
+          })
+          .catch(error => {
+            console.error("폴링 오류:", error);
+          });
+      }, 120000); // 2분
+      
+      console.log("자동 폴링 설정 완료 (2분 간격)");
+    }
+
+    /**
+     * 설정 저장 - 권한 관리 포함
+     */
+     function saveSettings() {
+      // 페이지당 항목 수
+      const newItemsPerPage = parseInt($('#items-per-page').val());
+      AppState.set('itemsPerPage', newItemsPerPage);
+      localStorage.setItem(Settings.storageKeys.itemsPerPage, newItemsPerPage);
+      
+      // 테마
+      const newTheme = $('#theme-select').val();
+      if (newTheme === 'dark') {
+        $('body').addClass('dark-mode');
+      } else {
+        $('body').removeClass('dark-mode');
+      }
+      localStorage.setItem(Settings.storageKeys.theme, newTheme);
+      
+      // 권한 관리 섹션이 있고 관리자인 경우에만 권한 설정 저장
+      if ($('#permission-management-section').length > 0 && UserPermissions.hasFieldManagementAccess()) {
+        const fieldManagementUsersText = $('#field-management-users').val();
+        const fieldManagementUsers = fieldManagementUsersText
+          .split(',')
+          .map(email => email.trim())
+          .filter(Boolean);
+        
+        // 서버에 권한 설정 저장
+        UserPermissions.updateUsers(fieldManagementUsers)
+          .then(result => {
+            if (result.success) {
+              UI.showAlert('성공', '권한 설정이 저장되었습니다.', 'success');
+            } else {
+              UI.showAlert('오류', '권한 설정 저장 실패: ' + result.message, 'danger');
+            }
+          })
+          .catch(error => {
+            UI.showAlert('오류', '권한 설정 저장 중 오류 발생: ' + error, 'danger');
+          });
+      }
+      
+      // 모달 닫기
+      $('#settings-modal').modal('hide');
+      
+      // 테이블 다시 렌더링
+      AppState.set('currentPage', 1);
+      renderProductsTable();
+      
+      UI.showAlert('성공', '설정이 저장되었습니다.', 'success');
+    }
+
+    /**
+     * 제품 추가 뷰 초기화 함수 - 하위 그룹 지원
+     */
+     function initializeAddProductView() {
+      // 폼 리셋
+      const form = document.getElementById(DOM.forms.product);
+      if (form) {
+        form.reset();
+      }
+      
+      // 애플리케이션 상태 초기화
+      AppState.set('currentRowIndex', -1);
+      AppState.set('currentSabangCode', '');
+      AppState.set('formChanged', false);
+      
+      // 숨겨진 필드 초기화
+      $('#product-row-index').val('-1');
+      $('#product-sabang-code').val('');
+      
+      // 뷰 전환
+      showView('add-product');
+      
+      // DOM이 완전히 렌더링 될 때까지 기다림
+      setTimeout(() => {
+        // 모든 스텝 초기화 및 첫 번째 스텝 표시 보장
+        $('.field-step').hide();
+        $('.field-step:first').show();
+        
+        // 스텝 네비게이션 초기화
+        $('.stepper-item').removeClass('active completed');
+        $('.stepper-item:first-of-type').addClass('active');
+        
+        // 버튼 상태 초기화
+        $('.btn-prev').prop('disabled', true);
+        $('.btn-next').html('다음<i class="fas fa-chevron-right ms-2"></i>')
+                       .addClass('btn-primary').removeClass('btn-success');
+        
+        // 네비게이션 버튼 표시, 제출 버튼 컨테이너 숨김
+        $('.nav-buttons').show();
+        $('.submit-container').hide();
+        
+        // 최적화 함수 호출
+        UI.optimizeProductFormForMobile();
+        setupFormAutoComplete();
+        
+        console.log("제품 추가 폼 초기화 완료");
+      }, 200);
+    }
+
+    /**
+     * 모든 UI 개선 기능 초기화
+     */
+     function initializeUIEnhancements() {
+      // 폼 개선 기능 설정
+      setupFormEnhancements();
+      
+      // 도움말 툴팁 설정
+      setupHelpTooltips();
+      
+      // 실시간 유효성 검사 설정
+      setupLiveValidation();
+      
+      // 문서 관리 모듈 초기화
+      DocumentManager.initialize();
+      
+      // 페이지 로드 완료 후 초기 최적화 적용
+      $(window).on('load', function() {
+        if ($('#add-product-view').is(':visible')) {
+          UI.optimizeProductFormForMobile();
+        }
+      });
+      // 자동 폴링 설정
+      setupPolling();
+      
+      console.log('UI 개선 기능 초기화 완료');
+    }
+    
+    
+    
+    /**
+     * 제품 폼 표시 시 모바일 최적화 및 자동 완성 설정
+     */
+    function setupFormEnhancements() {
+      // 제품 추가/수정 뷰가 표시될 때 최적화 적용
+      $(document).on('view:shown', function(e, viewName) {
+        if (viewName === 'add-product') {
+          setTimeout(function() {
+            UI.optimizeProductFormForMobile();
+            setupFormAutoComplete();
+          }, 100);
+        }
+      });
+    }
+    
+    /**
+     * 사용성 개선을 위한 툴팁 추가 - 이벤트 위임 패턴 적용
+     */
+    function setupHelpTooltips() {
+      // 동적으로 생성된 필드 라벨에 도움말 툴팁 추가
+      $('#form-fields-container').on('mouseover', '.form-label', function() {
+        const $label = $(this);
+        
+        // 이미 처리된 라벨은 건너뛰기
+        if ($label.data('tooltip-added')) return;
+        
+        const fieldId = $label.attr('for');
+        
+        if (fieldId) {
+          const fieldDef = DataManager.getFieldDefinition(fieldId);
+          
+          if (fieldDef && fieldDef.description) {
+            $label.append(`
+              <i class="fas fa-question-circle text-muted ms-1" 
+              data-bs-toggle="tooltip" data-bs-placement="top" 
+              title="${fieldDef.description}"></i>`);
+            
+            // 툴팁 초기화
+            const tooltip = new bootstrap.Tooltip($label.find('[data-bs-toggle="tooltip"]'));
+            
+            // 처리 표시
+            $label.data('tooltip-added', true);
+          }
+        }
+      });
+    }
+    
+    /**
+     * 필드 값 변경에 따른 실시간 유효성 검사 - 이벤트 위임 패턴 활용
+     */
+    function setupLiveValidation() {
+      // 폼 필드 입력 이벤트 - 이벤트 위임 패턴
+      $('#form-fields-container').on('input change', '.form-control, .form-select', function() {
+        const $field = $(this);
+        
+        // 필수 필드인 경우 값 확인
+        if ($field.prop('required')) {
+          if (!$field.val()) {
+            $field.addClass('is-invalid');
+            
+            // 피드백 메시지 추가 (없는 경우)
+            if ($field.nextAll('.invalid-feedback').length === 0) {
+              $field.after('<div class="invalid-feedback">이 필드는 필수입니다.</div>');
+            }
+          } else {
+            $field.removeClass('is-invalid');
+            $field.nextAll('.invalid-feedback').remove();
+          }
+        }
+        
+        // 숫자 필드인 경우 숫자 범위 확인
+        if ($field.attr('type') === 'number') {
+          const value = parseFloat($field.val());
+          if (!isNaN(value) && value < 0) {
+            $field.addClass('is-invalid');
+            
+            // 피드백 메시지 추가 (없는 경우)
+            if ($field.nextAll('.invalid-feedback').length === 0) {
+              $field.after('<div class="invalid-feedback">0 이상의 값을 입력하세요.</div>');
+            }
+          }
+        }
+        
+        // 사방넷 코드 필드인 경우 중복 검사
+        if ($field.attr('id') === '사방넷코드' && $field.val()) {
+          const currentCode = $('#product-sabang-code').val();
+          const newCode = $field.val();
+          
+          // 수정 모드에서 기존 코드와 다른 경우에만 중복 검사
+          if (newCode !== currentCode) {
+            const isDuplicate = checkSabangCodeDuplicate(newCode);
+            
+            if (isDuplicate) {
+              $field.addClass('is-invalid');
+              
+              // 피드백 메시지 추가 (없는 경우)
+              if ($field.nextAll('.invalid-feedback').length === 0) {
+                $field.after('<div class="invalid-feedback">이미 사용 중인 사방넷 코드입니다.</div>');
+              }
+            } else {
+              $field.removeClass('is-invalid');
+              $field.nextAll('.invalid-feedback').remove();
+            }
+          }
+        }
+      });
+    }
+
+    /**
+     * 현재 활성 뷰 이름 가져오기
+     * @returns {string} 현재 뷰 이름
+     */
+     function getCurrentView() {
+      for (const view in DOM.views) {
+        if (!$('#' + DOM.views[view]).hasClass('d-none')) {
+          return view;
+        }
+      }
+      return '';
+    }
+
+</script>

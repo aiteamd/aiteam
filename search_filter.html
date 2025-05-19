@@ -1,0 +1,1161 @@
+<script>
+
+    /**
+     * 제품 목록 검색 기능 강화 - 최적화 버전
+     */
+     function enhanceProductListSearch() {
+      // 기존에 이미 초기화되었는지 확인
+      if ($('#search-filter-section').length > 0) {
+        return;
+      }
+      
+      // DOM 요소 생성 최적화
+      const $filterSection = $(document.createElement('div'));
+      $filterSection.addClass('card mb-3')
+                   .attr('id', 'search-filter-section');
+      
+      const $cardBody = $(document.createElement('div'));
+      $cardBody.addClass('card-body');
+      
+      const $filterRow = $(document.createElement('div'));
+      $filterRow.addClass('row');
+      
+      // 검색 영역
+      const $searchCol = $(document.createElement('div'));
+      $searchCol.addClass('col-md-8');
+      
+      const $searchGroup = $(document.createElement('div'));
+      $searchGroup.addClass('input-group');
+      
+      const $fieldSelect = $(document.createElement('select'));
+      $fieldSelect.addClass('form-select w-auto')
+                  .attr('id', 'search-field-select');
+      
+      // 전체 옵션은 항상 첫 번째로 추가
+      const $allOption = $(document.createElement('option'));
+      $allOption.attr('value', 'all').text('전체');
+      $fieldSelect.append($allOption);
+      
+      // 헤더에서 검색 가능한 필드 동적 생성
+      const headers = AppState.get('headers') || [];
+      
+      // 중요 필드 목록 - 이 필드들은 항상 콤보박스 상단에 표시
+      const priorityFields = [
+        '제품명_발주점검시트',
+        '브랜드',
+        '카테고리',
+        '사방넷코드',
+        '제조사'
+      ];
+      
+      // 우선순위 필드 먼저 추가
+      priorityFields.forEach(field => {
+        if (headers.includes(field)) {
+          const fieldDef = DataManager.getFieldDefinition(field);
+          const displayName = fieldDef ? fieldDef.label : field;
+          
+          const $option = $(document.createElement('option'));
+          $option.attr('value', field).text(displayName);
+          $fieldSelect.append($option);
+        }
+      });
+      
+      // 구분선 추가
+      const $divider = $(document.createElement('option'));
+      $divider.attr('disabled', true).text('──────────');
+      $fieldSelect.append($divider);
+      
+      // 나머지 모든 필드 추가
+      headers.forEach(field => {
+        // 이미 추가된 우선순위 필드는 건너뜀
+        if (!priorityFields.includes(field)) {
+          const fieldDef = DataManager.getFieldDefinition(field);
+          const displayName = fieldDef ? fieldDef.label : field;
+          
+          const $option = $(document.createElement('option'));
+          $option.attr('value', field).text(displayName);
+          $fieldSelect.append($option);
+        }
+      });
+      
+      const $searchInput = $(document.createElement('input'));
+      $searchInput.attr('type', 'text')
+                  .addClass('form-control')
+                  .attr('id', 'product-search-input')
+                  .attr('placeholder', '검색어를 입력하세요');
+      
+      const $searchButton = $(document.createElement('button'));
+      $searchButton.addClass('btn btn-primary')
+                   .attr('id', 'product-search-button')
+                   .html('<i class="fas fa-search"></i> 검색');
+      
+      $searchGroup.append($fieldSelect, $searchInput, $searchButton);
+      $searchCol.append($searchGroup);
+      
+      // 정렬 영역
+      const $sortCol = $(document.createElement('div'));
+      $sortCol.addClass('col-md-4');
+      
+      const $sortContainer = $(document.createElement('div'));
+      $sortContainer.addClass('d-flex align-items-center h-100 justify-content-end');
+      
+      const $sortLabel = $(document.createElement('div'));
+      $sortLabel.addClass('me-2').text('정렬:');
+      
+      const $sortSelect = $(document.createElement('select'));
+      $sortSelect.addClass('form-select w-auto')
+                 .attr('id', 'sort-select');
+      
+      // 정렬 옵션
+      const sortOptions = [
+        { value: 'latest', text: '최신순' },
+        { value: 'name', text: '이름순' },
+        { value: 'brand', text: '브랜드순' }
+      ];
+      
+      sortOptions.forEach(option => {
+        const $option = $(document.createElement('option'));
+        $option.attr('value', option.value).text(option.text);
+        $sortSelect.append($option);
+      });
+      
+      $sortContainer.append($sortLabel, $sortSelect);
+      $sortCol.append($sortContainer);
+      
+      // 검색 인디케이터
+      const $searchIndicator = $(document.createElement('div'));
+      $searchIndicator.addClass('mt-2 d-none')
+                     .attr('id', 'search-filter-indicator');
+      
+      const $searchInfoBadge = $(document.createElement('span'));
+      $searchInfoBadge.addClass('badge bg-info').text('검색 결과');
+      
+      const $searchQuery = $(document.createElement('span'));
+      $searchQuery.attr('id', 'current-search-query');
+      
+      const $clearButton = $(document.createElement('button'));
+      $clearButton.addClass('btn btn-sm btn-link')
+                  .attr('id', 'clear-search')
+                  .text('초기화');
+      
+      $searchIndicator.append($searchInfoBadge, ' ', $searchQuery, $clearButton);
+      
+      // 요소 조립
+      $filterRow.append($searchCol, $sortCol);
+      $cardBody.append($filterRow, $searchIndicator);
+      $filterSection.append($cardBody);
+      
+      // 제품 목록 카드 앞에 추가
+      $('#products-view .card:first-of-type').before($filterSection);
+      
+      // 고급 필터 시스템 추가
+      enhanceProductListFilters();
+      
+      // 이벤트 리스너 설정 - 이벤트 위임 패턴 적용
+      // 검색 버튼 이벤트
+      $('#search-filter-section').on('click', '#product-search-button', function() {
+        const field = $('#search-field-select').val();
+        const query = $('#product-search-input').val().trim();
+        
+        if (query) {
+          performFilteredSearch(field, query);
+        } else {
+          DataManager.loadAllProductData()
+            .then(() => renderProductsTable()); // 검색어가 없으면 전체 목록 로드
+        }
+      });
+      
+      // 검색어 입력 후 엔터 키 이벤트
+      $('#search-filter-section').on('keypress', '#product-search-input', function(e) {
+        if (e.which === 13) {
+          $('#product-search-button').click();
+          e.preventDefault();
+        }
+      });
+      
+      // 검색 초기화 버튼 이벤트
+      $('#search-filter-section').on('click', '#clear-search', function() {
+        $('#search-field-select').val('all');
+        $('#product-search-input').val('');
+        $('#search-filter-indicator').addClass('d-none');
+        DataManager.loadAllProductData()
+          .then(() => renderProductsTable());
+      });
+      
+      // 정렬 선택 변경 이벤트
+      $('#search-filter-section').on('change', '#sort-select', function() {
+        const sortBy = $(this).val();
+        sortProductList(sortBy);
+      });
+    }
+    
+    /**
+     * 제품 목록 정렬 - 최적화 버전
+     * @param {string} sortBy - 정렬 기준 ('name', 'brand', 'latest')
+     */
+    function sortProductList(sortBy) {
+      const filteredData = AppState.get('filteredProductData');
+      
+      if (!filteredData || filteredData.length === 0) return;
+      
+      const headers = AppState.get('headers');
+      const titleIdx = headers.indexOf('제품명_발주점검시트');
+      const brandIdx = headers.indexOf('브랜드');
+      const dateIdx = headers.indexOf('출시연월');
+      
+      // 정렬 함수 맵 (객체 리터럴 패턴)
+      const sortFunctions = {
+        'name': (a, b) => {
+          const nameA = (a[titleIdx] || '').toLowerCase();
+          const nameB = (b[titleIdx] || '').toLowerCase();
+          return nameA.localeCompare(nameB);
+        },
+        'brand': (a, b) => {
+          const brandA = (a[brandIdx] || '').toLowerCase();
+          const brandB = (b[brandIdx] || '').toLowerCase();
+          return brandA.localeCompare(brandB);
+        },
+        'latest': (a, b) => {
+          const dateA = a[dateIdx] || '';
+          const dateB = b[dateIdx] || '';
+          return dateB.localeCompare(dateA); // 내림차순 (최신순)
+        }
+      };
+      
+      // 원본 배열 유지를 위해 복사 후 정렬
+      const sortedData = [...filteredData].sort(sortFunctions[sortBy] || sortFunctions['latest']);
+      
+      // 상태 업데이트
+      AppState.set('filteredProductData', sortedData);
+      
+      // 테이블 다시 렌더링
+      renderProductsTable();
+    }
+    
+    /**
+     * 필터링된 검색 결과와 함께 필터 패널 상태 초기화
+     * @param {string} field - 검색 필드
+     * @param {string} query - 검색 쿼리
+     */
+    function performFilteredSearch(field, query) {
+      // 검색 필터 상태 업데이트
+      AppState.set('currentFilter', 'search');
+      AppState.set('currentSearchField', field);  // 현재 검색 필드 저장
+      AppState.set('currentSearchQuery', query);  // 현재 검색어 저장
+      $('#current-search-query').text(query);
+      $('#search-filter-indicator').removeClass('d-none');
+      
+      // 고급 필터 초기화 (기존 데이터 로드는 하지 않음)
+      $('.filter-checkbox[data-filter-type="status"]').prop('checked', false);
+      $('#filter-status-all').prop('checked', true);
+      $('#filter-brand, #filter-category, #filter-manufacturer, #filter-capacity, #filter-release-date').val('all');
+      $('#custom-date-range').addClass('d-none');
+      $('#filter-date-start, #filter-date-end').val('');
+      AppState.set('activeFilters', {});
+      
+      UI.showLoading();
+      
+      // 필드에 따라 다른 검색 방식 사용
+      if (field === 'all') {
+        // 서버에서 검색 수행 대신 로컬에서 검색하도록 수정 (매치 필드 표시를 위해)
+        searchAllProductFields(query);
+      } else {
+        // 특정 필드만 검색 - 로컬에서 필터링
+        searchProductsByField(field, query);
+      }
+    }
+    
+    function searchAllProductFields(query) {
+      UI.showLoading();
+      
+      try {
+        const productData = AppState.get('productData');
+        const headers = AppState.get('headers');
+        
+        query = query.toLowerCase();
+        
+        // 매치 정보를 포함한 필터링된 데이터 배열
+        const filteredResults = [];
+        
+        // 로컬 데이터에서 모든 필드 검색
+        productData.forEach(row => {
+          // 이 행에서 매치된 모든 필드 기록
+          const matchedFields = [];
+          
+          // 각 필드 검사
+          headers.forEach((header, index) => {
+            const fieldValue = row[index];
+            
+            if (fieldValue && String(fieldValue).toLowerCase().includes(query)) {
+              matchedFields.push({
+                field: header,
+                index: index,
+                value: fieldValue
+              });
+            }
+          });
+          
+          // 매치된 필드가 있으면 결과에 추가
+          if (matchedFields.length > 0) {
+            filteredResults.push({
+              row: row,
+              matches: matchedFields
+            });
+          }
+        });
+        
+        // 필터링된 데이터로 업데이트 (원본 행만 저장)
+        const filteredRows = filteredResults.map(item => item.row);
+        AppState.set('filteredProductData', filteredRows);
+        
+        // 매치 정보 저장
+        AppState.set('searchMatches', filteredResults);
+        AppState.set('currentPage', 1);
+        
+        // 테이블 다시 렌더링
+        renderProductsTableWithHighlights();
+        
+        // 검색 결과 메시지 표시
+        UI.showAlert('검색 결과', filteredRows.length + '개의 제품이 검색되었습니다.', 'info');
+        
+      } catch (error) {
+        UI.showAlert('오류', '검색 중 오류가 발생했습니다: ' + error.message, 'danger');
+      } finally {
+        UI.hideLoading();
+      }
+    }
+    
+    function renderProductsTableWithHighlights() {
+      const $tableBody = $('#' + DOM.tables.products);
+      const filteredData = AppState.get('filteredProductData');
+      const searchMatches = AppState.get('searchMatches');
+      const query = AppState.get('currentSearchQuery');
+      
+      // 테이블 초기화
+      $tableBody.empty();
+      
+      // 데이터가 없는 경우
+      if (!filteredData || filteredData.length === 0) {
+        $tableBody.html('<tr><td colspan="9" class="text-center">데이터가 없습니다.</td></tr>'); // colspan 9로 변경
+        $('#pagination').empty();
+        return;
+      }
+      
+      // 필드 인덱스 가져오기
+      const headers = AppState.get('headers');
+      const brandNameIdx = headers.indexOf('제품명_발주점검시트');
+      const manufacturerIdx = headers.indexOf('제조사');
+      const capacityIdx = headers.indexOf('용량');
+      const capacityUnitIdx = headers.indexOf('용량_단위');
+      const activeIdx = headers.indexOf('운영여부');
+      const releaseDateIdx = headers.indexOf('출시연월');
+      const sabangCodeIdx = headers.indexOf('사방넷코드');
+      const countryIdx = headers.indexOf('국가'); // 국가 인덱스 추가
+    
+      // 페이지네이션 계산
+      const itemsPerPage = AppState.get('itemsPerPage');
+      const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+      const currentPage = AppState.get('currentPage');
+      const startIndex = (currentPage - 1) * itemsPerPage;
+      const endIndex = Math.min(startIndex + itemsPerPage, filteredData.length);
+      const pageData = filteredData.slice(startIndex, endIndex);
+      
+      // DocumentFragment 사용하여 DOM 조작 최소화
+      const fragment = document.createDocumentFragment();
+      
+      // 각 행 생성
+      pageData.forEach((row, idx) => {
+        const rowIndex = AppState.get('productData').indexOf(row);
+        const sabangCode = row[sabangCodeIdx] || '-';
+        
+        // 매치 정보 찾기
+        const matchInfo = searchMatches ? 
+          searchMatches.find(match => match.row === row) : null;
+        
+        // 행 요소 생성
+        const $row = $(document.createElement('tr'));
+        
+        // 매치된 필드 정보를 툴팁으로 표시
+        if (matchInfo && matchInfo.matches.length > 0) {
+          const matchedFieldsText = matchInfo.matches.map(m => {
+            const fieldDef = DataManager.getFieldDefinition(m.field);
+            const fieldLabel = fieldDef ? fieldDef.label : m.field;
+            return `${fieldLabel}: ${m.value}`;
+          }).join('\n');
+          
+          $row.attr('title', '매치된 필드:\n' + matchedFieldsText);
+          $row.addClass('search-matched-row');
+          
+          // Bootstrap 툴팁 초기화
+          setTimeout(() => {
+            new bootstrap.Tooltip($row[0], {
+              placement: 'left',
+              container: 'body',
+              html: true,
+              template: '<div class="tooltip search-match-tooltip" role="tooltip"><div class="tooltip-arrow"></div><div class="tooltip-inner"></div></div>'
+            });
+          }, 100);
+        }
+        
+        // 셀 추가
+        $row.append(`<td>${startIndex + idx + 1}</td>`);
+        
+        // 사방넷 코드 - 매치 여부에 따라 하이라이트
+        const isSabangCodeMatched = matchInfo && matchInfo.matches.some(m => m.field === '사방넷코드');
+        $row.append(`<td>${highlightMatch(sabangCode, query, isSabangCodeMatched)}</td>`);
+        
+        // 제품명 - 매치 여부에 따라 하이라이트
+        const isNameMatched = matchInfo && matchInfo.matches.some(m => m.field === '제품명_발주점검시트');
+        const productName = row[brandNameIdx] || '-';
+        $row.append(`<td>${highlightMatch(productName, query, isNameMatched)}</td>`);
+        
+        // 제조사 - 매치 여부에 따라 하이라이트
+        const isManufacturerMatched = matchInfo && matchInfo.matches.some(m => m.field === '제조사');
+        const manufacturer = row[manufacturerIdx] || '-';
+        $row.append(`<td>${highlightMatch(manufacturer, query, isManufacturerMatched)}</td>`);
+        
+        // 용량 + 단위 형식으로 표시
+        const capacity = row[capacityIdx] || '-';
+        const capacityUnit = row[capacityUnitIdx] || '';
+        const isCapacityMatched = matchInfo && 
+          (matchInfo.matches.some(m => m.field === '용량') || 
+           matchInfo.matches.some(m => m.field === '용량_단위'));
+        $row.append(`<td>${highlightMatch(capacity + capacityUnit, query, isCapacityMatched)}</td>`);
+        
+        // 운영여부에 따른 배지
+        const status = row[activeIdx] || '-';
+        const statusClass = status === '운영' ? 'badge-success' : 'badge-secondary';
+        const isStatusMatched = matchInfo && matchInfo.matches.some(m => m.field === '운영여부');
+        $row.append(`<td><span class="badge ${statusClass} ${isStatusMatched ? 'highlight-match' : ''}">${status}</span></td>`);
+        
+        // 출시연월
+        const isReleaseDateMatched = matchInfo && matchInfo.matches.some(m => m.field === '출시연월');
+        const releaseDate = row[releaseDateIdx] || '-';
+        $row.append(`<td>${highlightMatch(releaseDate, query, isReleaseDateMatched)}</td>`);
+        
+        // 국가 정보 추가 - 매치 여부에 따라 하이라이트
+        const isCountryMatched = matchInfo && matchInfo.matches.some(m => m.field === '국가');
+        const country = row[countryIdx] || '-';
+        $row.append(`<td>${highlightMatch(country, query, isCountryMatched)}</td>`);
+        
+        // 액션 버튼
+        const $actions = $(document.createElement('td'));
+        $actions.addClass('table-actions');
+        
+        // 버튼 추가 - 사방넷 코드를 data-* 속성으로 사용
+        $actions.append(`<button class="btn btn-sm btn-info view-btn" data-sabang="${sabangCode}"><i class="fas fa-eye"></i></button>`);
+        $actions.append(`<button class="btn btn-sm btn-warning edit-btn" data-sabang="${sabangCode}" data-index="${rowIndex}"><i class="fas fa-edit"></i></button>`);
+        $actions.append(`<button class="btn btn-sm btn-danger delete-btn" data-sabang="${sabangCode}"><i class="fas fa-trash"></i></button>`);
+        
+        $row.append($actions);
+        
+        // 행을 fragment에 추가
+        fragment.appendChild($row[0]);
+      });
+      
+      // 한 번에 DOM에 추가
+      $tableBody.append(fragment);
+      
+      // 페이지네이션 렌더링
+      renderPagination(totalPages);
+      
+      // 매치 필드 강조 스타일 추가
+      if (!$('#match-highlight-style').length) {
+        $('head').append(`
+          <style id="match-highlight-style">
+            .highlight-match {
+              background-color: rgba(255, 235, 59, 0.5) !important;
+              font-weight: bold;
+            }
+            .search-matched-row {
+              cursor: help;
+            }
+            .search-match-tooltip .tooltip-inner {
+              max-width: 300px;
+              text-align: left;
+              white-space: pre-line;
+            }
+          </style>
+        `);
+      }
+    }
+    
+    function highlightMatch(text, query, isMatched) {
+      // 검색이 아니거나 이 필드가 매치되지 않으면 일반 텍스트 반환
+      if (!query || !isMatched) {
+        return text;
+      }
+      
+      try {
+        // 정규식을 사용한 하이라이트 (대소문자 구분 없음)
+        const regex = new RegExp('(' + escapeRegExp(query) + ')', 'gi');
+        return text.replace(regex, '<span class="highlight-match">$1</span>');
+      } catch (error) {
+        // 정규식 오류 발생 시 원본 반환
+        return `<span class="highlight-match">${text}</span>`;
+      }
+    }
+    
+    
+    
+    
+    renderProductsTable = function() {
+      // 전체 검색 결과이거나 특정 필드 검색이고 매치 정보가 있는 경우 하이라이트가 있는 테이블 렌더링
+      if (AppState.get('searchMatches')) {
+        renderProductsTableWithHighlights();
+      } else {
+        // 그렇지 않으면 원래 함수 호출
+        originalRenderProductsTable();
+      }
+    };
+    
+    /**
+     * 특정 필드로 제품 검색 (로컬 데이터 사용)
+     * @param {string} fieldName - 필드명
+     * @param {string} query - 검색 쿼리
+     */
+    function searchProductsByField(fieldName, query) {
+      UI.showLoading();
+      
+      try {
+        const productData = AppState.get('productData');
+        const headers = AppState.get('headers');
+        const fieldIndex = headers.indexOf(fieldName);
+        
+        if (fieldIndex === -1) {
+          throw new Error('필드를 찾을 수 없습니다: ' + fieldName);
+        }
+        
+        query = query.toLowerCase();
+        
+        // 매치 정보를 포함한 필터링된 데이터 배열
+        const filteredResults = [];
+        
+        // 로컬 데이터에서 특정 필드 검색
+        productData.forEach(row => {
+          const fieldValue = row[fieldIndex];
+          
+          // 값이 존재하고 검색어를 포함하는지 확인
+          if (fieldValue && String(fieldValue).toLowerCase().includes(query)) {
+            // 매치 정보 저장
+            filteredResults.push({
+              row: row,
+              matches: [{
+                field: fieldName,
+                index: fieldIndex,
+                value: fieldValue
+              }]
+            });
+          }
+        });
+        
+        // 필터링된 데이터로 업데이트 (원본 행만 저장)
+        const filteredRows = filteredResults.map(item => item.row);
+        AppState.set('filteredProductData', filteredRows);
+        
+        // 매치 정보 저장
+        AppState.set('searchMatches', filteredResults);
+        AppState.set('currentPage', 1);
+        
+        // 테이블 다시 렌더링 (하이라이트 적용)
+        renderProductsTableWithHighlights();
+        
+        // 검색 결과 메시지 표시
+        UI.showAlert('검색 결과', filteredRows.length + '개의 제품이 검색되었습니다.', 'info');
+        
+      } catch (error) {
+        UI.showAlert('오류', '검색 중 오류가 발생했습니다: ' + error.message, 'danger');
+      } finally {
+        UI.hideLoading();
+      }
+    }
+
+    /**
+     * 고급 필터 UI 추가 - 용량 필터 제거 버전
+     */
+     function enhanceProductListFilters() {
+      // 필터 패널이 이미 존재하면 건너뛰기
+      if ($('#filter-panel').length > 0) {
+        return;
+      }
+      
+      // 필터 패널 생성
+      const $filterPanel = $(document.createElement('div'));
+      $filterPanel.addClass('card mb-3')
+                  .attr('id', 'filter-panel');
+      
+      // 패널 내용
+      const filterPanelContent = `
+        <div class="card-header bg-light" data-bs-toggle="collapse" data-bs-target="#filter-panel-body" 
+             aria-expanded="false" aria-controls="filter-panel-body" style="cursor: pointer;">
+          <div class="d-flex justify-content-between">
+            <h6 class="mb-0"><i class="fas fa-filter me-2"></i>고급 필터</h6>
+            <i class="fas fa-chevron-down"></i>
+          </div>
+        </div>
+        <div class="collapse" id="filter-panel-body">
+          <div class="card-body">
+            <form id="filter-form">
+              <div class="row">
+                <!-- 운영여부 필터 -->
+                <div class="col-md-4 mb-3">
+                  <label class="form-label">운영여부</label>
+                  <div>
+                    <div class="form-check form-check-inline">
+                      <input class="form-check-input filter-checkbox" type="radio" name="status-filter" 
+                             id="filter-status-all" data-filter-type="status" data-filter-value="all" checked>
+                      <label class="form-check-label" for="filter-status-all">전체</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                      <input class="form-check-input filter-checkbox" type="radio" name="status-filter" 
+                             id="filter-status-normal" data-filter-type="status" data-filter-value="정상운영">
+                      <label class="form-check-label" for="filter-status-normal">정상운영</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                      <input class="form-check-input filter-checkbox" type="radio" name="status-filter" 
+                             id="filter-status-renewal" data-filter-type="status" data-filter-value="리뉴얼">
+                      <label class="form-check-label" for="filter-status-renewal">리뉴얼</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                      <input class="form-check-input filter-checkbox" type="radio" name="status-filter" 
+                             id="filter-status-discontinued" data-filter-type="status" data-filter-value="단종">
+                      <label class="form-check-label" for="filter-status-discontinued">단종</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                      <input class="form-check-input filter-checkbox" type="radio" name="status-filter" 
+                             id="filter-status-holding" data-filter-type="status" data-filter-value="홀딩">
+                      <label class="form-check-label" for="filter-status-holding">홀딩</label>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- 브랜드 필터 -->
+                <div class="col-md-4 mb-3">
+                  <label for="filter-brand" class="form-label">브랜드</label>
+                  <select class="form-select filter-select" id="filter-brand" data-filter-type="brand">
+                    <option value="all">전체</option>
+                    <!-- 동적으로 채워짐 -->
+                  </select>
+                </div>
+                
+                <!-- 카테고리 필터 -->
+                <div class="col-md-4 mb-3">
+                  <label for="filter-category" class="form-label">카테고리</label>
+                  <select class="form-select filter-select" id="filter-category" data-filter-type="category">
+                    <option value="all">전체</option>
+                    <!-- 동적으로 채워짐 -->
+                  </select>
+                </div>
+                
+                <!-- 제조사 필터 -->
+                <div class="col-md-4 mb-3">
+                  <label for="filter-manufacturer" class="form-label">제조사</label>
+                  <select class="form-select filter-select" id="filter-manufacturer" data-filter-type="manufacturer">
+                    <option value="all">전체</option>
+                    <!-- 동적으로 채워짐 -->
+                  </select>
+                </div>
+                
+                <!-- 국가 필터 -->
+                <div class="col-md-4 mb-3">
+                  <label for="filter-country" class="form-label">국가</label>
+                  <select class="form-select filter-select" id="filter-country" data-filter-type="country">
+                    <option value="all">전체</option>
+                    <!-- 동적으로 채워짐 -->
+                  </select>
+                </div>
+                
+                <!-- 출시일 필터 -->
+                <div class="col-md-4 mb-3">
+                  <label for="filter-release-date" class="form-label">출시일</label>
+                  <select class="form-select filter-select" id="filter-release-date" data-filter-type="releaseDate">
+                    <option value="all">전체</option>
+                    <option value="lastMonth">최근 1개월</option>
+                    <option value="lastQuarter">최근 3개월</option>
+                    <option value="lastYear">최근 1년</option>
+                    <option value="custom">직접 설정</option>
+                  </select>
+                  
+                  <div id="custom-date-range" class="mt-2 d-none">
+                    <input type="month" class="form-control form-control-sm d-inline-block" 
+                           id="filter-date-start" style="width: 45%;">
+                    <span class="px-1">~</span>
+                    <input type="month" class="form-control form-control-sm d-inline-block" 
+                           id="filter-date-end" style="width: 45%;">
+                  </div>
+                </div>
+              </div>
+              
+              <div class="row mt-2">
+                <div class="col-12">
+                  <button type="button" class="btn btn-primary btn-sm" id="apply-filters">
+                    <i class="fas fa-filter me-1"></i> 필터 적용
+                  </button>
+                  <button type="button" class="btn btn-secondary btn-sm" id="reset-filters">
+                    <i class="fas fa-undo me-1"></i> 필터 초기화
+                  </button>
+                </div>
+              </div>
+            </form>
+            
+            <div id="active-filters" class="mt-3 d-none">
+              <div class="mb-1 text-muted small">적용된 필터:</div>
+              <div class="active-filter-tags d-flex flex-wrap"></div>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      $filterPanel.html(filterPanelContent);
+      
+      // 필터 패널을 검색 섹션 아래에 추가
+      $('#search-filter-section').after($filterPanel);
+      
+      // 이벤트 리스너 설정
+      // 출시일 필터 타입 변경 시 커스텀 날짜 범위 표시/숨김
+      $('#filter-release-date').on('change', function() {
+        const value = $(this).val();
+        $('#custom-date-range').toggleClass('d-none', value !== 'custom');
+      });
+      
+      // 필터 적용 버튼 이벤트
+      $('#apply-filters').on('click', function() {
+        applyAdvancedFilters();
+      });
+      
+      // 필터 초기화 버튼 이벤트
+      $('#reset-filters').on('click', function() {
+        resetFilters();
+      });
+      
+      // 필터 태그 제거 이벤트 - 이벤트 위임 패턴
+      $('#active-filters').on('click', '.filter-tag .btn-close-sm', function() {
+        const filterType = $(this).parent().data('filter-type');
+        const filterValue = $(this).parent().data('filter-value');
+        
+        // 해당 필터 제거
+        removeFilter(filterType, filterValue);
+        
+        // 필터 다시 적용
+        applyAdvancedFilters();
+      });
+      
+      // 체크박스 변경 이벤트 자동 필터 적용
+      $('.filter-checkbox').on('change', function() {
+        if ($(this).is(':checked')) {
+          applyAdvancedFilters();
+        }
+      });
+    }
+    
+    /**
+     * 필터 옵션 채우기 - 용량 제거 버전
+     */
+    function populateFilterOptions() {
+      try {
+        const headers = AppState.get('headers');
+        
+        // 필드 인덱스
+        const brandIdx = headers.indexOf('브랜드');
+        const categoryIdx = headers.indexOf('카테고리');
+        const manufacturerIdx = headers.indexOf('제조사');
+        const countryIdx = headers.indexOf('국가'); // 국가 인덱스 추가
+        
+        // 브랜드 옵션 채우기
+        populateSelectOptions('#filter-brand', DataManager.getUniqueValuesFromData(brandIdx));
+        
+        // 카테고리 옵션 채우기
+        populateSelectOptions('#filter-category', DataManager.getUniqueValuesFromData(categoryIdx));
+        
+        // 제조사 옵션 채우기
+        populateSelectOptions('#filter-manufacturer', DataManager.getUniqueValuesFromData(manufacturerIdx));
+        
+        // 국가 옵션 채우기
+        populateSelectOptions('#filter-country', DataManager.getUniqueValuesFromData(countryIdx));
+        
+        console.log('필터 옵션 초기화 완료');
+        
+      } catch (error) {
+        console.error('필터 옵션 초기화 오류:', error);
+      }
+    }
+    
+    /**
+     * 셀렉트 박스 옵션 채우기 - 최적화 버전
+     * @param {string} selector - 셀렉트 박스 선택자
+     * @param {Array} values - 옵션 값 배열
+     */
+    function populateSelectOptions(selector, values) {
+      const $select = $(selector);
+      
+      // 기존 '전체' 옵션 제외한 나머지 제거
+      $select.find('option:not([value="all"])').remove();
+      
+      // DocumentFragment 사용하여 DOM 조작 최소화
+      const fragment = document.createDocumentFragment();
+      
+      values.forEach(value => {
+        if (value) {
+          const $option = $(document.createElement('option'));
+          $option.attr('value', value).text(value);
+          fragment.appendChild($option[0]);
+        }
+      });
+      
+      // 한 번에 DOM에 추가
+      $select.append(fragment);
+    }
+    
+    /**
+     * 고급 필터 적용 - 최적화 버전
+     */
+    function applyAdvancedFilters() {
+      try {
+        UI.showLoading();
+        
+        // 원본 데이터 가져오기
+        const productData = AppState.get('productData');
+        const headers = AppState.get('headers');
+        
+        // 필드 인덱스 (용량 제거됨)
+        const statusIdx = headers.indexOf('운영여부');
+        const brandIdx = headers.indexOf('브랜드');
+        const categoryIdx = headers.indexOf('카테고리');
+        const manufacturerIdx = headers.indexOf('제조사');
+        const releaseDateIdx = headers.indexOf('출시연월');
+        const countryIdx = headers.indexOf('국가'); // 국가 인덱스 추가
+        
+        // 적용할 필터 수집
+        const activeFilters = {};
+        
+        // 운영여부 필터
+        const statusValue = $('input[name="status-filter"]:checked').data('filter-value');
+        if (statusValue !== 'all') {
+          activeFilters.status = statusValue;
+        }
+        
+        // 브랜드, 카테고리, 제조사, 국가 필터
+        const dropdownFilters = [
+          { type: 'brand', selector: '#filter-brand', index: brandIdx },
+          { type: 'category', selector: '#filter-category', index: categoryIdx },
+          { type: 'manufacturer', selector: '#filter-manufacturer', index: manufacturerIdx },
+          { type: 'country', selector: '#filter-country', index: countryIdx } // 국가 필터 추가
+        ];
+        
+        dropdownFilters.forEach(filter => {
+          const value = $(filter.selector).val();
+          if (value !== 'all') {
+            activeFilters[filter.type] = {
+              value: value,
+              index: filter.index
+            };
+          }
+        });
+        
+        // 출시일 필터
+        const releaseDateFilter = $('#filter-release-date').val();
+        if (releaseDateFilter !== 'all') {
+          const now = new Date();
+          let fromDate;
+          
+          switch (releaseDateFilter) {
+            case 'lastMonth':
+              fromDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+              break;
+            case 'lastQuarter':
+              fromDate = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+              break;
+            case 'lastYear':
+              fromDate = new Date(now.getFullYear() - 1, now.getMonth(), 1);
+              break;
+            case 'custom':
+              const startDate = $('#filter-date-start').val();
+              const endDate = $('#filter-date-end').val();
+              
+              if (startDate || endDate) {
+                activeFilters.releaseDate = {
+                  type: 'custom',
+                  start: startDate ? new Date(startDate) : null,
+                  end: endDate ? new Date(endDate) : null,
+                  index: releaseDateIdx
+                };
+              }
+              break;
+          }
+          
+          if (releaseDateFilter !== 'custom' && fromDate) {
+            activeFilters.releaseDate = {
+              type: releaseDateFilter,
+              from: fromDate,
+              index: releaseDateIdx
+            };
+          }
+        }
+        
+        // 필터 상태 저장
+        AppState.set('activeFilters', activeFilters);
+        
+        // 필터 적용
+        let filteredData = productData;
+        
+        // 필터 적용 - 성능 최적화를 위해 한 번의 순회로 모든 필터 적용
+        if (Object.keys(activeFilters).length > 0) {
+          filteredData = productData.filter(row => {
+            // 운영여부 필터
+            if (activeFilters.status && row[statusIdx] !== activeFilters.status) {
+              return false;
+            }
+            
+            // 드롭다운 필터 (브랜드, 카테고리, 제조사, 국가)
+            for (const key of ['brand', 'category', 'manufacturer', 'country']) { // country 추가
+              if (activeFilters[key] && 
+                  row[activeFilters[key].index] !== activeFilters[key].value) {
+                return false;
+              }
+            }
+            
+            // 용량 필터 제거됨
+            
+            // 출시일 필터
+            if (activeFilters.releaseDate) {
+              const releaseDateStr = row[releaseDateIdx];
+              
+              if (!releaseDateStr) {
+                return false;
+              }
+              
+              const releaseDate = new Date(releaseDateStr);
+              
+              if (activeFilters.releaseDate.type === 'custom') {
+                // 커스텀 날짜 범위
+                const startDate = activeFilters.releaseDate.start;
+                const endDate = activeFilters.releaseDate.end;
+                
+                if (startDate && releaseDate < startDate) {
+                  return false;
+                }
+                
+                if (endDate) {
+                  // 월 기준 비교를 위해 종료일의 다음 월 첫째 날로 설정
+                  const adjustedEndDate = new Date(endDate);
+                  adjustedEndDate.setMonth(adjustedEndDate.getMonth() + 1);
+                  
+                  if (releaseDate >= adjustedEndDate) {
+                    return false;
+                  }
+                }
+              } else {
+                // 상대적 날짜 범위
+                if (releaseDate < activeFilters.releaseDate.from) {
+                  return false;
+                }
+              }
+            }
+            
+            return true;
+          });
+        }
+        
+        // 필터링된 데이터로 업데이트
+        AppState.set('filteredProductData', filteredData);
+        AppState.set('currentPage', 1);
+        
+        // 테이블 다시 렌더링
+        renderProductsTable();
+        
+        // 활성 필터 UI 업데이트
+        updateActiveFiltersUI();
+        
+        // 결과 메시지 표시
+        if (Object.keys(activeFilters).length > 0) {
+          UI.showAlert('필터 적용', filteredData.length + '개의 제품이 필터링되었습니다.', 'info');
+        }
+        
+      } catch (error) {
+        console.error('필터 적용 오류:', error);
+        UI.showAlert('오류', '필터 적용 중 오류가 발생했습니다: ' + error.message, 'danger');
+      } finally {
+        UI.hideLoading();
+      }
+    }
+    
+    /**
+     * 활성 필터 UI 업데이트 - 최적화 버전
+     */
+    function updateActiveFiltersUI() {
+      const activeFilters = AppState.get('activeFilters');
+      const $activeFilters = $('#active-filters');
+      const $tagContainer = $('.active-filter-tags');
+      
+      // 필터 태그 초기화
+      $tagContainer.empty();
+      
+      // 활성 필터가 없으면 섹션 숨김
+      if (!activeFilters || Object.keys(activeFilters).length === 0) {
+        $activeFilters.addClass('d-none');
+        return;
+      }
+      
+      // 필터 태그 생성
+      const fragment = document.createDocumentFragment();
+      
+      // 운영여부 필터
+      if (activeFilters.status) {
+        const $tag = createFilterTag('status', activeFilters.status, '운영여부: ' + activeFilters.status);
+        fragment.appendChild($tag[0]);
+      }
+      
+      // 브랜드 필터
+      if (activeFilters.brand) {
+        const $tag = createFilterTag('brand', activeFilters.brand.value, '브랜드: ' + activeFilters.brand.value);
+        fragment.appendChild($tag[0]);
+      }
+      
+      // 카테고리 필터
+      if (activeFilters.category) {
+        const $tag = createFilterTag('category', activeFilters.category.value, '카테고리: ' + activeFilters.category.value);
+        fragment.appendChild($tag[0]);
+      }
+      
+      // 제조사 필터
+      if (activeFilters.manufacturer) {
+        const $tag = createFilterTag('manufacturer', activeFilters.manufacturer.value, '제조사: ' + activeFilters.manufacturer.value);
+        fragment.appendChild($tag[0]);
+      }
+    
+      if (activeFilters.country) {
+        const $tag = createFilterTag('country', activeFilters.country.value, '국가: ' + activeFilters.country.value);
+        fragment.appendChild($tag[0]);
+      }
+      
+      // 용량 필터 제거됨
+      
+      // 출시일 필터
+      if (activeFilters.releaseDate) {
+        let releaseDateLabel = '출시일: ';
+        
+        switch (activeFilters.releaseDate.type) {
+          case 'lastMonth':
+            releaseDateLabel += '최근 1개월';
+            break;
+          case 'lastQuarter':
+            releaseDateLabel += '최근 3개월';
+            break;
+          case 'lastYear':
+            releaseDateLabel += '최근 1년';
+            break;
+          case 'custom':
+            const startStr = activeFilters.releaseDate.start ? 
+                             formatYearMonth(activeFilters.releaseDate.start) : '';
+            const endStr = activeFilters.releaseDate.end ? 
+                           formatYearMonth(activeFilters.releaseDate.end) : '';
+            
+            releaseDateLabel += startStr + ' ~ ' + endStr;
+            break;
+        }
+        
+        const $tag = createFilterTag('releaseDate', activeFilters.releaseDate.type, releaseDateLabel);
+        fragment.appendChild($tag[0]);
+      }
+      
+      // 태그 컨테이너에 추가
+      $tagContainer.append(fragment);
+      
+      // 섹션 표시
+      $activeFilters.removeClass('d-none');
+    }
+    
+    /**
+     * 필터 태그 생성
+     * @param {string} type - 필터 타입
+     * @param {string} value - 필터 값
+     * @param {string} label - 표시 라벨
+     * @returns {jQuery} 생성된 태그 요소
+     */
+    function createFilterTag(type, value, label) {
+      const $tag = $(document.createElement('span'));
+      $tag.addClass('badge filter-tag mb-1 me-1')
+          .attr('data-filter-type', type)
+          .attr('data-filter-value', value)
+          .html(label + ' <button type="button" class="btn-close btn-close-sm" aria-label="Close"></button>');
+      
+      return $tag;
+    }
+    
+    
+    /**
+     * 필터 초기화
+     */
+    function resetFilters() {
+      // 체크박스 초기화
+      $('.filter-checkbox[data-filter-type="status"]').prop('checked', false);
+      $('#filter-status-all').prop('checked', true);
+      
+      // 드롭다운 초기화 (용량 제거됨)
+      $('#filter-brand, #filter-category, #filter-manufacturer, #filter-release-date').val('all');
+      
+      // 커스텀 날짜 범위 초기화
+      $('#custom-date-range').addClass('d-none');
+      $('#filter-date-start, #filter-date-end').val('');
+      
+      // 활성 필터 상태 초기화
+      AppState.set('activeFilters', {});
+      
+      // 활성 필터 UI 업데이트
+      updateActiveFiltersUI();
+      
+      // 원본 데이터로 복원
+      AppState.set('filteredProductData', [...AppState.get('productData')]);
+      AppState.set('currentPage', 1);
+      
+      // 테이블 다시 렌더링
+      renderProductsTable();
+      
+      UI.showAlert('알림', '필터가 초기화되었습니다.', 'info');
+    }
+    
+    /**
+     * 특정 필터 제거
+     * @param {string} filterType - 필터 타입
+     * @param {string} filterValue - 필터 값
+     */
+    function removeFilter(filterType, filterValue) {
+      const activeFilters = AppState.get('activeFilters');
+      
+      // 필터가 없으면 종료
+      if (!activeFilters || !activeFilters[filterType]) {
+        return;
+      }
+      
+      // 필터 타입에 따른 UI 업데이트
+      switch (filterType) {
+        case 'status':
+          // 라디오 버튼을 '전체'로 설정
+          $('#filter-status-all').prop('checked', true);
+          break;
+          
+        case 'brand':
+        case 'category':
+        case 'manufacturer':
+        case 'capacity':
+          // 드롭다운을 '전체'로 설정
+          $(`#filter-${filterType}`).val('all');
+          break;
+          
+        case 'releaseDate':
+          // 출시일 필터 초기화
+          $('#filter-release-date').val('all');
+          $('#custom-date-range').addClass('d-none');
+          $('#filter-date-start, #filter-date-end').val('');
+          break;
+      }
+      
+      // 필터 상태에서 제거
+      delete activeFilters[filterType];
+      AppState.set('activeFilters', activeFilters);
+      
+      // 활성 필터 UI 업데이트
+      updateActiveFiltersUI();
+    }
+
+</script>

@@ -1,0 +1,139 @@
+<script>
+
+    /**
+     * 데이터 내보내기 - 최적화 버전
+     */
+     function exportData() {
+      console.log("데이터 내보내기 시작");
+      UI.showLoading();
+      
+      // 타이머 설정 - 10초 후 자동으로 로딩 인디케이터 제거
+      const exportTimeout = setTimeout(function() {
+        UI.hideLoading();
+        UI.showAlert('알림', '내보내기 시간이 오래 걸립니다. 새 탭이 열렸는지 확인하세요.', 'warning');
+      }, 10000);
+      
+      try {
+        // 서버에서 spreadsheet ID 가져오기
+        ServerAPI.getSpreadsheetId()
+          .then(spreadsheetId => {
+            clearTimeout(exportTimeout);
+            
+            if (spreadsheetId) {
+              console.log("스프레드시트 ID 가져오기 성공: " + spreadsheetId);
+              const url = 'https://docs.google.com/spreadsheets/d/' + spreadsheetId + '/export?format=xlsx';
+              window.open(url, '_blank');
+              
+              UI.showAlert('성공', '데이터 내보내기가 시작되었습니다. 새 탭을 확인하세요.', 'success');
+            } else {
+              console.warn("스프레드시트 ID를 가져올 수 없음 - CSV 다운로드로 대체");
+              // 대체 방법: CSV 다운로드
+              downloadCSV();
+            }
+            
+            UI.hideLoading();
+          })
+          .catch(error => {
+            clearTimeout(exportTimeout);
+            console.error("서버에서 스프레드시트 ID 가져오기 실패: " + error);
+            
+            // 오류 발생 시 CSV 다운로드로 대체
+            downloadCSV();
+            UI.hideLoading();
+          });
+      } catch (error) {
+        clearTimeout(exportTimeout);
+        console.error("내보내기 오류: " + error);
+        UI.showAlert('오류', '데이터 내보내기 중 오류가 발생했습니다: ' + error, 'danger');
+        UI.hideLoading();
+      }
+    }
+    
+    /**
+     * CSV 형식으로 데이터 다운로드 - Web API 최적화 적용
+     */
+    function downloadCSV() {
+      try {
+        // CSV 형식으로 변환
+        const csvContent = convertDataToCSV();
+        
+        // Blob 생성
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        
+        // 다운로드 링크 생성 (URL.createObjectURL 사용)
+        const url = URL.createObjectURL(blob);
+        const downloadLink = document.createElement("a");
+        downloadLink.href = url;
+        downloadLink.download = "제품관리시스템_데이터.csv";
+        
+        // 링크 클릭하여 다운로드 시작
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        
+        // 리소스 정리 (메모리 누수 방지)
+        setTimeout(() => {
+          document.body.removeChild(downloadLink);
+          URL.revokeObjectURL(url);
+        }, 100);
+        
+        UI.showAlert('성공', 'CSV 파일로 내보내기가 완료되었습니다.', 'success');
+      } catch (error) {
+        console.error("CSV 다운로드 오류: " + error);
+        UI.showAlert('오류', 'CSV 내보내기 중 오류가 발생했습니다: ' + error, 'danger');
+      }
+    }
+    
+    /**
+     * 데이터를 CSV 문자열로 변환 - 성능 최적화 적용
+     * @returns {string} CSV 형식의 문자열
+     */
+    function convertDataToCSV() {
+      const headers = AppState.get('headers');
+      const productData = AppState.get('productData');
+      
+      if (!headers || !productData || headers.length === 0) {
+        return "데이터가 없습니다";
+      }
+      
+      // StringBuilder 패턴 활용
+      const lines = [];
+      
+      // 헤더 행 추가
+      lines.push(headers.map(escapeCSVCell).join(','));
+      
+      // 데이터 행 추가
+      for (const row of productData) {
+        const csvCells = [];
+        
+        for (let j = 0; j < headers.length; j++) {
+          const cellValue = j < row.length ? row[j] : '';
+          csvCells.push(escapeCSVCell(cellValue));
+        }
+        
+        lines.push(csvCells.join(','));
+      }
+      
+      return lines.join('\n');
+    }
+    
+    /**
+     * CSV 셀 값 이스케이프 처리
+     * @param {*} value - 셀 값
+     * @returns {string} 이스케이프된 셀 문자열
+     */
+    function escapeCSVCell(value) {
+      if (value === null || value === undefined) {
+        return '';
+      }
+      
+      const cellText = String(value).replace(/"/g, '""');
+      
+      // 쉼표, 줄바꿈 또는 따옴표가 포함된 경우 큰따옴표로 둘러싸기
+      if (cellText.includes(',') || cellText.includes('\n') || cellText.includes('"')) {
+        return '"' + cellText + '"';
+      }
+      
+      return cellText;
+    }
+    
+</script>

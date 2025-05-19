@@ -1,0 +1,1921 @@
+<script>
+
+    // 8. 기존 renderProductsTable 함수 오버라이드
+    const originalRenderProductsTable = renderProductsTable;
+
+    /**
+     * 제품 테이블 렌더링 - 최적화 버전
+     * DocumentFragment 사용하여 DOM 조작 최소화
+     */
+     function renderProductsTable() {
+      const $tableBody = $('#' + DOM.tables.products);
+      const filteredData = AppState.get('filteredProductData');
+      
+      // 테이블 초기화
+      $tableBody.empty();
+      
+      // 데이터가 없는 경우
+      if (!filteredData || filteredData.length === 0) {
+        $tableBody.html('<tr><td colspan="9" class="text-center">데이터가 없습니다.</td></tr>'); // colspan 9로 변경 (8에서 증가)
+        $('#pagination').empty();
+        return;
+      }
+      
+      // 필드 인덱스 가져오기
+      const headers = AppState.get('headers');
+      const brandNameIdx = headers.indexOf('제품명_발주점검시트');
+      const manufacturerIdx = headers.indexOf('제조사');
+      const capacityIdx = headers.indexOf('용량');
+      const capacityUnitIdx = headers.indexOf('용량_단위');
+      const activeIdx = headers.indexOf('운영여부');
+      const releaseDateIdx = headers.indexOf('출시연월');
+      const sabangCodeIdx = headers.indexOf('사방넷코드');
+      const countryIdx = headers.indexOf('국가'); // 국가 인덱스 추가
+    
+      // 페이지네이션 계산
+      const itemsPerPage = AppState.get('itemsPerPage');
+      const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+      const currentPage = AppState.get('currentPage');
+      const startIndex = (currentPage - 1) * itemsPerPage;
+      const endIndex = Math.min(startIndex + itemsPerPage, filteredData.length);
+      const pageData = filteredData.slice(startIndex, endIndex);
+      
+      // DocumentFragment 사용하여 DOM 조작 최소화
+      const fragment = document.createDocumentFragment();
+      
+      // 각 행 생성
+      pageData.forEach((row, idx) => {
+        const rowIndex = AppState.get('productData').indexOf(row);
+        const sabangCode = row[sabangCodeIdx] || '-';
+        
+        // 행 요소 생성
+        const $row = $(document.createElement('tr'));
+        
+        // 셀 추가
+        $row.append(`<td>${startIndex + idx + 1}</td>`);
+        $row.append(`<td>${sabangCode}</td>`);
+        $row.append(`<td>${row[brandNameIdx] || '-'}</td>`);
+        $row.append(`<td>${row[manufacturerIdx] || '-'}</td>`);
+        
+        // 용량 + 단위 형식으로 표시
+        const capacity = row[capacityIdx] || '-';
+        const capacityUnit = row[capacityUnitIdx] || '';
+        $row.append(`<td>${capacity}${capacityUnit}</td>`);
+        
+        // 운영여부에 따른 배지
+        const status = row[activeIdx] || '-';
+        const statusClass = status === '운영' ? 'badge-success' : 'badge-secondary';
+        $row.append(`<td><span class="badge ${statusClass}">${status}</span></td>`);
+        
+        $row.append(`<td>${row[releaseDateIdx] || '-'}</td>`);
+        
+        // 국가 정보 추가
+        const country = row[countryIdx] || '-';
+        $row.append(`<td>${country}</td>`);
+        
+        // 액션 버튼
+        const $actions = $(document.createElement('td'));
+        $actions.addClass('table-actions');
+        
+        // 버튼 추가 - 사방넷 코드를 data-* 속성으로 사용
+        $actions.append(`<button class="btn btn-sm btn-info view-btn" data-sabang="${sabangCode}"><i class="fas fa-eye"></i></button>`);
+        $actions.append(`<button class="btn btn-sm btn-warning edit-btn" data-sabang="${sabangCode}" data-index="${rowIndex}"><i class="fas fa-edit"></i></button>`);
+        $actions.append(`<button class="btn btn-sm btn-danger delete-btn" data-sabang="${sabangCode}"><i class="fas fa-trash"></i></button>`);
+        
+        $row.append($actions);
+        
+        // 행을 fragment에 추가
+        fragment.appendChild($row[0]);
+      });
+      
+      // 한 번에 DOM에 추가
+      $tableBody.append(fragment);
+      
+      // 페이지네이션 렌더링
+      renderPagination(totalPages);
+    }
+    
+    /**
+     * 페이지네이션 렌더링 - 최적화 버전
+     * @param {number} totalPages - 전체 페이지 수
+     */
+    function renderPagination(totalPages) {
+      const $pagination = $('#pagination');
+      $pagination.empty();
+      
+      if (totalPages <= 1) {
+        return;
+      }
+      
+      const currentPage = AppState.get('currentPage');
+      
+      // DocumentFragment 사용
+      const fragment = document.createDocumentFragment();
+      
+      // 이전 페이지 버튼
+      const $prevItem = $(document.createElement('li'));
+      $prevItem.addClass('page-item');
+      if (currentPage === 1) $prevItem.addClass('disabled');
+      
+      const $prevLink = $(document.createElement('a'));
+      $prevLink.addClass('page-link')
+               .attr('href', '#')
+               .attr('data-page', currentPage - 1)
+               .text('이전');
+      
+      $prevItem.append($prevLink);
+      fragment.appendChild($prevItem[0]);
+      
+      // 페이지 번호
+      const maxVisiblePages = 5;
+      const startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+      const endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+      
+      for (let i = startPage; i <= endPage; i++) {
+        const $pageItem = $(document.createElement('li'));
+        $pageItem.addClass('page-item');
+        if (i === currentPage) $pageItem.addClass('active');
+        
+        const $pageLink = $(document.createElement('a'));
+        $pageLink.addClass('page-link')
+                 .attr('href', '#')
+                 .attr('data-page', i)
+                 .text(i);
+        
+        $pageItem.append($pageLink);
+        fragment.appendChild($pageItem[0]);
+      }
+      
+      // 다음 페이지 버튼
+      const $nextItem = $(document.createElement('li'));
+      $nextItem.addClass('page-item');
+      if (currentPage === totalPages) $nextItem.addClass('disabled');
+      
+      const $nextLink = $(document.createElement('a'));
+      $nextLink.addClass('page-link')
+               .attr('href', '#')
+               .attr('data-page', currentPage + 1)
+               .text('다음');
+      
+      $nextItem.append($nextLink);
+      fragment.appendChild($nextItem[0]);
+      
+      // 한 번에 DOM에 추가
+      $pagination.append(fragment);
+    }
+    
+    /**
+     * 필터 적용 - 최적화 버전
+     * @param {string} filter - 필터 타입
+     */
+    function applyFilter(filter) {
+      AppState.set('currentFilter', filter);
+      AppState.set('currentPage', 1);
+      
+      const headers = AppState.get('headers');
+      const productData = AppState.get('productData');
+      
+      // 필드 인덱스 가져오기
+      const activeIdx = headers.indexOf('운영여부');
+      const releaseDateIdx = headers.indexOf('출시연월');
+      
+      // 원본 데이터 참조
+      let filtered;
+      
+      // 필터 타입에 따라 데이터 필터링
+      switch(filter) {
+        case 'active':
+          filtered = productData.filter(row => row[activeIdx] === '운영');
+          break;
+        case 'inactive':
+          filtered = productData.filter(row => row[activeIdx] !== '운영');
+          break;
+        case 'recent':
+          // 출시연월 기준으로 정렬하고 최근 20개만 표시
+          // 배열 복사 후 정렬 (원본 데이터 변경 방지)
+          filtered = [...productData].sort((a, b) => {
+            const dateA = a[releaseDateIdx] || '';
+            const dateB = b[releaseDateIdx] || '';
+            return dateB.localeCompare(dateA); // 내림차순 (최신순)
+          }).slice(0, 20);
+          break;
+        case 'all':
+        default:
+          // 모든 제품 표시 (필터링 없음)
+          filtered = [...productData];
+          break;
+      }
+      
+      // 필터링된 데이터 업데이트
+      AppState.set('filteredProductData', filtered);
+      
+      // 테이블 다시 렌더링
+      renderProductsTable();
+    }
+    
+    /**
+     * 제품 상세 정보 표시 - 최적화 버전
+     * @param {string} sabangCode - 사방넷 코드
+     */
+    function showProductDetails(sabangCode) {
+      UI.showLoading();
+      
+      // 모달 정리 - 기존 모달이 있으면 완전히 제거
+      $('.modal-backdrop').remove();
+      $('body').removeClass('modal-open').css('overflow', '');
+      $('body').css('padding-right', '');
+      
+      // 문서 정보를 미리 로드 (병렬 처리)
+      DocumentManager.currentSabangCode = sabangCode;
+      const documentPromise = DocumentManager.loadDocuments(sabangCode, true); // true 파라미터 추가: 백그라운드 로드용
+      
+      ServerAPI.getProductBySabangCode(sabangCode)
+        .then(result => {
+          if (result.success) {
+            const product = result.product;
+            const headers = result.headers;
+            
+            // 현재 제품 정보를 AppState에 저장 (나중에 뷰 업데이트에 사용)
+            AppState.set('selectedProduct', product);
+            AppState.set('currentSabangCode', sabangCode);
+            
+            // 객체 형태의 데이터를 사용해 상세 정보 표시
+            renderProductDetails(product, headers, result.rowIndex, sabangCode);
+            
+            // 문서 정보가 로드되면 카운트 업데이트
+            documentPromise.then(() => {
+              // 문서 카운트 표시 업데이트 (탭 클릭 전에도 표시)
+              updateDocumentTabCounter();
+            }).catch(error => {
+              console.error("문서 정보 로드 실패:", error);
+              // 오류가 있어도 카운트는 0으로 표시
+              updateDocumentTabCounter();
+            });
+          } else {
+            UI.showAlert('오류', result.message, 'danger');
+          }
+          
+          UI.hideLoading();
+        })
+        .catch(error => {
+          UI.showAlert('오류', error, 'danger');
+          UI.hideLoading();
+        });
+    }
+
+    /**
+     * 제품 상세보기 뷰 업데이트 함수
+     * 현재 표시되어 있는 모든 탭에 대해 뷰 타입에 맞게 업데이트
+     */
+     function updateProductDetailViews() {
+      // 활성화된 탭 찾기
+      const $activeTab = $('#productDetailTabs .nav-link.active');
+      const activeTabId = $activeTab.attr('id');
+      
+      // 그룹된 필드 데이터 다시 가져오기
+      const groupedFields = prepareFieldGroups(AppState.get('selectedProduct') || {});
+      const sabangCode = AppState.get('currentSabangCode');
+      
+      // 탭 내용 다시 생성
+      createImprovedProductDetailTabs(groupedFields, sabangCode);
+      
+      // 부자재 정보 다시 로드
+      loadProductAccessories(sabangCode);
+      
+      // 문서 탭 콘텐츠 다시 렌더링 (기존 로드된 문서 정보 사용)
+      if (DocumentManager.currentDocuments && DocumentManager.documentTypes) {
+        // 문서 콘텐츠 컨테이너 선택
+        const $documentsContent = $('#documents-content');
+        
+        // 컨테이너가 존재하면 내용 업데이트
+        if ($documentsContent.length) {
+          // 문서 관리자를 통해 문서 정보 다시 렌더링
+          DocumentManager.renderDocumentList();
+        }
+      }
+      
+      // 문서 카운트 업데이트
+      updateDocumentTabCounter();
+      
+      // 이전에 활성화된 탭 다시 활성화
+      if (activeTabId) {
+        const newTabEl = document.getElementById(activeTabId);
+        if (newTabEl) {
+          const tab = new bootstrap.Tab(newTabEl);
+          tab.show();
+        }
+      }
+    }
+  
+    /**
+     * 필드 값을 형식화하여 표시 - 최적화 버전
+     * @param {Object} field - 필드 객체
+     * @returns {string} 형식화된 HTML
+     */
+    function getFormattedValue(field) {
+      // 값이 없는 경우
+      if (field.isEmpty) {
+        return '<span class="text-muted fst-italic">-</span>';
+      }
+      
+      // 필드 타입별 형식화
+      switch (field.type) {
+        case 'text':
+          return `<span>${field.value}</span>`;
+          
+        case 'number':
+          // 숫자 값은 우측 정렬하고 단위가 있다면 표시
+          return `<span class="fw-medium text-end d-block">${field.value}</span>`;
+          
+        case 'date':
+          // 날짜 필드는 캘린더 아이콘과 함께 표시
+          return `<span><i class="far fa-calendar-alt me-1 text-primary"></i> ${field.value}</span>`;
+          
+        case 'select':
+          // 선택 필드는 상태에 따라 다른 배지로 표시
+          if (field.field === '운영여부') {
+            const statusClass = field.value === '운영' ? 'bg-success' : 'bg-secondary';
+            return `<span class="badge ${statusClass}">${field.value}</span>`;
+          }
+          return `<span class="badge bg-info">${field.value}</span>`;
+          
+        case 'textarea':
+          // textarea는 전체 텍스트 표시
+          return `<div class="text-content"><div class="full-text">${field.value}</div></div>`;
+    
+        case 'checkbox':
+          // 체크박스는 true/false 값 표시
+          const isChecked = field.value === true || field.value === 'true' || field.value === '1' || field.value === 'yes';
+          return isChecked ? 
+            '<span class="badge bg-success"><i class="fas fa-check me-1"></i>예</span>' : 
+            '<span class="badge bg-secondary"><i class="fas fa-times me-1"></i>아니오</span>';
+            
+        default:
+          return `<span>${field.value}</span>`;
+      }
+    }
+    
+    /**
+     * 제품 폼 생성 - 하위 그룹 카드를 2열로 표시
+     */
+    function buildProductForm() {
+      const $container = $('#' + DOM.containers.formFields);
+      $container.empty();
+      
+      const fieldDefinitions = AppState.get('fieldDefinitions');
+      const fieldGroups = AppState.get('fieldGroups');
+      
+      if (!fieldDefinitions || fieldDefinitions.length === 0) {
+        $container.html('<div class="col-12 alert alert-warning">필드 정의를 찾을 수 없습니다.</div>');
+        return;
+      }
+      
+      // 필드 그룹별로 정렬 - Map 사용으로 최적화
+      const groupedFields = {};
+      
+      fieldDefinitions.forEach(fieldDef => {
+        const group = fieldDef.group || '기타';
+        if (!groupedFields[group]) {
+          groupedFields[group] = [];
+        }
+        groupedFields[group].push(fieldDef);
+      });
+      
+      // 그룹 순서대로 정렬
+      const sortedGroups = Object.keys(groupedFields).sort((a, b) => 
+        (fieldGroups[a]?.order || 999) - (fieldGroups[b]?.order || 999)
+      );
+      
+      // 필수 필드를 추적하기 위한 배열
+      const requiredFields = [];
+      
+      // DocumentFragment 사용
+      const fragment = document.createDocumentFragment();
+      
+      // 먼저 상단에 진행 단계 표시기 추가
+      const $progressContainer = $(document.createElement('div'));
+      $progressContainer.addClass('mb-4 stepper-container w-100');
+      
+      const $stepper = $(document.createElement('div'));
+      $stepper.addClass('stepper d-flex justify-content-between');
+      
+      sortedGroups.forEach((group, index) => {
+        const isActive = index === 0 ? 'active' : '';
+        const groupDisplayName = fieldGroups[group]?.displayName || group;
+        const groupId = group.replace(/\s+/g, '_');
+        
+        const $stepperItem = $(document.createElement('div'));
+        $stepperItem.addClass(`stepper-item ${isActive}`)
+                    .attr('data-group', groupId);
+        
+        const $stepperCircle = $(document.createElement('div'));
+        $stepperCircle.addClass('stepper-circle').text(index + 1);
+        
+        const $stepperLabel = $(document.createElement('div'));
+        $stepperLabel.addClass('stepper-label').text(groupDisplayName);
+        
+        $stepperItem.append($stepperCircle).append($stepperLabel);
+        $stepper.append($stepperItem);
+        
+        // 연결선 추가 (마지막 항목 제외)
+        if (index < sortedGroups.length - 1) {
+          const $stepperLine = $(document.createElement('div'));
+          $stepperLine.addClass('stepper-line');
+          $stepper.append($stepperLine);
+        }
+      });
+      
+      $progressContainer.append($stepper);
+      fragment.appendChild($progressContainer[0]);
+      
+      // 내비게이션 버튼 컨테이너
+      const $navContainer = $(document.createElement('div'));
+      $navContainer.addClass('d-flex justify-content-between mt-3 mb-4 nav-buttons w-100');
+      
+      const $prevButton = $(document.createElement('button'));
+      $prevButton.attr('type', 'button')
+                 .addClass('btn btn-secondary btn-prev')
+                 .attr('disabled', true)
+                 .html('<i class="fas fa-chevron-left me-2"></i>이전');
+      
+      const $nextButton = $(document.createElement('button'));
+      $nextButton.attr('type', 'button')
+                 .addClass('btn btn-primary btn-next')
+                 .html('다음<i class="fas fa-chevron-right ms-2"></i>');
+      
+      $navContainer.append($prevButton).append($nextButton);
+      fragment.appendChild($navContainer[0]);
+      
+      // 사방넷 코드가 필수 필드인지 미리 확인
+      const hasSabangnetCodeRequired = fieldDefinitions.some(
+        f => f.field === '사방넷코드' && f.required
+      );
+      
+      if (hasSabangnetCodeRequired) {
+        const $warningContainer = $(document.createElement('div'));
+        $warningContainer.addClass('col-12 mb-4 w-100')
+                         .html(`
+                          <div class="alert alert-warning">
+                            <i class="fas fa-exclamation-triangle me-2"></i>
+                            <strong>주의:</strong> 사방넷 코드는 필수 입력 항목입니다. 이 값은 제품의 고유 식별자로 사용됩니다.
+                          </div>`);
+        
+        fragment.appendChild($warningContainer[0]);
+      }
+      
+      // 각 그룹별 필드 생성
+      sortedGroups.forEach((group, groupIndex) => {
+        const fields = groupedFields[group];
+        const groupDisplayName = fieldGroups[group]?.displayName || group;
+        const groupId = 'group_' + group.replace(/\s+/g, '_');
+        const displayStyle = groupIndex > 0 ? 'style="display:none;"' : '';
+        
+        const $group = $(document.createElement('div'));
+        $group.attr('id', groupId)
+              .addClass('col-12 field-step w-100')
+              .attr('style', displayStyle);
+        
+        // 가이드 추가
+        const $guide = $(document.createElement('div'));
+        $guide.addClass('alert alert-light border-start border-info border-4 mb-4')
+              .html(`
+                <i class="fas fa-info-circle text-info me-2"></i>
+                <span>${groupDisplayName} 관련 정보를 입력해주세요. 
+                필수 항목은 <span class="text-danger">*</span> 표시가 되어 있습니다.</span>
+              `);
+        
+        $group.append($guide);
+        
+        // 하위 그룹별로 필드 구성
+        const subGroupMap = new Map();
+        
+        // 각 필드의 하위 그룹 정보 수집
+        fields.forEach(fieldDef => {
+          // 필수 필드 추적
+          if (fieldDef.required) {
+            requiredFields.push(fieldDef.field);
+          }
+          
+          const subGroup = fieldDef.subGroup || '기타 정보';
+          
+          if (!subGroupMap.has(subGroup)) {
+            subGroupMap.set(subGroup, []);
+          }
+          
+          subGroupMap.get(subGroup).push(fieldDef);
+        });
+        
+        // 하위 그룹 카드들을 담을 2열 그리드 컨테이너 생성
+        const $subgroupsContainer = $(document.createElement('div'));
+        $subgroupsContainer.addClass('row subgroups-row');
+        
+        // 하위 그룹별로 필드 렌더링 (하위 그룹 카드를 2열로 배치)
+        Array.from(subGroupMap.entries()).forEach(([subGroupName, subGroupFields]) => {
+          // 하위 그룹 내에서 subGroupOrder 기준으로 정렬
+          subGroupFields.sort((a, b) => (a.subGroupOrder || 0) - (b.subGroupOrder || 0));
+          
+          // 하위 그룹 컬럼 (2열 그리드의 한 열)
+          const $subgroupCol = $(document.createElement('div'));
+          $subgroupCol.addClass('col-md-6 mb-4'); // 중간 화면 이상에서는 2열, 작은 화면에서는 1열
+          
+          // 하위 그룹 카드 생성
+          const $subgroupCard = $(document.createElement('div'));
+          $subgroupCard.addClass('card h-100'); // 같은 행에서 높이를 맞추기 위해 h-100 추가
+          
+          // 카드 헤더
+          const $cardHeader = $(document.createElement('div'));
+          $cardHeader.addClass('card-header bg-light');
+          
+          const $cardTitle = $(document.createElement('h6'));
+          $cardTitle.addClass('mb-0')
+                    .html(`<i class="fas fa-folder-open me-2"></i>${subGroupName}`);
+          
+          $cardHeader.append($cardTitle);
+          
+          // 카드 바디
+          const $cardBody = $(document.createElement('div'));
+          $cardBody.addClass('card-body p-0');
+          
+          // 테이블 컨테이너
+          const $tableContainer = $(document.createElement('div'));
+          $tableContainer.addClass('table-responsive');
+          
+          // 테이블 생성
+          const $table = $(document.createElement('table'));
+          $table.addClass('table table-hover mb-0');
+          
+          // 테이블 본문
+          const $tbody = $(document.createElement('tbody'));
+          
+          // 각 필드를 테이블 행으로 추가
+          subGroupFields.forEach(fieldDef => {
+            const $row = $(document.createElement('tr'));
+            
+            // 라벨 셀
+            const $labelCell = $(document.createElement('td'));
+            $labelCell.attr('width', '30%')
+                      .addClass('fw-medium');
+            
+            const $labelContent = $(document.createElement('div'));
+            $labelContent.addClass('d-flex align-items-center');
+            
+            // 필드 타입 아이콘
+            const fieldIcon = getFieldTypeIcon(fieldDef.type);
+            const $icon = $(document.createElement('span'));
+            $icon.addClass('field-icon me-2');
+            $icon.html(`<i class="fas ${fieldIcon} text-secondary"></i>`);
+            
+            // 라벨 텍스트
+            const labelText = fieldDef.label;
+            const $labelText = $(document.createElement('span'));
+            if (fieldDef.required) {
+              $labelText.addClass('required-field');
+            }
+            $labelText.text(labelText);
+            
+            $labelContent.append($icon).append($labelText);
+            
+            // 설명이 있으면 툴팁 추가
+            if (fieldDef.description) {
+              const $helpIcon = $(document.createElement('i'));
+              $helpIcon.addClass('fas fa-question-circle text-muted ms-1')
+                       .attr('data-bs-toggle', 'tooltip')
+                       .attr('data-bs-placement', 'top')
+                       .attr('title', fieldDef.description);
+              
+              $labelContent.append($helpIcon);
+            }
+            
+            $labelCell.append($labelContent);
+            
+            // 입력 필드 셀
+            const $fieldCell = $(document.createElement('td'));
+            $fieldCell.attr('width', '70%');
+            
+            // 필드 타입에 따라 다른 입력 요소 생성
+            let $fieldInput;
+            
+            switch(fieldDef.type) {
+              case 'textarea':
+                $fieldInput = $(document.createElement('textarea'));
+                $fieldInput.addClass('form-control')
+                          .attr('id', fieldDef.field)
+                          .attr('name', fieldDef.field)
+                          .attr('rows', '3');
+                break;
+                
+              case 'select':
+                $fieldInput = $(document.createElement('select'));
+                $fieldInput.addClass('form-select')
+                          .attr('id', fieldDef.field)
+                          .attr('name', fieldDef.field);
+                
+                // 기본 옵션
+                const $defaultOption = $(document.createElement('option'));
+                $defaultOption.attr('value', '').text('선택하세요');
+                $fieldInput.append($defaultOption);
+                
+                // 옵션 추가
+                if (fieldDef.options && Array.isArray(fieldDef.options)) {
+                  fieldDef.options.forEach(opt => {
+                    const $option = $(document.createElement('option'));
+                    $option.attr('value', opt).text(opt);
+                    $fieldInput.append($option);
+                  });
+                }
+                break;
+                
+              case 'date':
+                $fieldInput = $(document.createElement('input'));
+                $fieldInput.attr('type', 'month')
+                          .addClass('form-control')
+                          .attr('id', fieldDef.field)
+                          .attr('name', fieldDef.field);
+                break;
+                
+              case 'number':
+                $fieldInput = $(document.createElement('input'));
+                $fieldInput.attr('type', 'number')
+                          .addClass('form-control')
+                          .attr('id', fieldDef.field)
+                          .attr('name', fieldDef.field)
+                          .attr('step', 'any');
+                break;
+                
+              case 'checkbox':
+                const $checkContainer = $(document.createElement('div'));
+                $checkContainer.addClass('form-check');
+                
+                $fieldInput = $(document.createElement('input'));
+                $fieldInput.attr('type', 'checkbox')
+                          .addClass('form-check-input')
+                          .attr('id', fieldDef.field)
+                          .attr('name', fieldDef.field);
+                
+                const $checkLabel = $(document.createElement('label'));
+                $checkLabel.addClass('form-check-label')
+                          .attr('for', fieldDef.field)
+                          .text('예');
+                
+                $checkContainer.append($fieldInput).append($checkLabel);
+                $fieldInput = $checkContainer; // 컨테이너를 필드 입력으로 설정
+                break;
+                
+              default: // text
+                $fieldInput = $(document.createElement('input'));
+                $fieldInput.attr('type', 'text')
+                          .addClass('form-control')
+                          .attr('id', fieldDef.field)
+                          .attr('name', fieldDef.field);
+            }
+            
+            // 필수 필드 설정
+            if (fieldDef.required && fieldDef.type !== 'checkbox') {
+              $fieldInput.attr('required', '');
+            }
+            
+            $fieldCell.append($fieldInput);
+            
+            // 행에 셀 추가
+            $row.append($labelCell).append($fieldCell);
+            
+            // 행을 테이블에 추가
+            $tbody.append($row);
+          });
+          
+          // 테이블 조립
+          $table.append($tbody);
+          $tableContainer.append($table);
+          $cardBody.append($tableContainer);
+          
+          // 카드 조립
+          $subgroupCard.append($cardHeader).append($cardBody);
+          
+          // 카드를 열에 추가
+          $subgroupCol.append($subgroupCard);
+          
+          // 열을 그리드 컨테이너에 추가
+          $subgroupsContainer.append($subgroupCol);
+        });
+        
+        // 하위 그룹 그리드 컨테이너를 그룹에 추가
+        $group.append($subgroupsContainer);
+        
+        // 그룹을 문서 조각에 추가
+        fragment.appendChild($group[0]);
+      });
+      
+      // 제출 버튼 컨테이너 추가
+      const $submitContainer = $(document.createElement('div'));
+      $submitContainer.addClass('col-12 text-center submit-container w-100')
+                      .attr('style', 'display:none;');
+      
+      const $submitCard = $(document.createElement('div'));
+      $submitCard.addClass('card shadow-sm mb-4');
+      
+      const $submitCardBody = $(document.createElement('div'));
+      $submitCardBody.addClass('card-body');
+      
+      const $submitTitle = $(document.createElement('h5'));
+      $submitTitle.addClass('mb-3').text('모든 정보를 입력하셨습니다');
+      
+      const $submitText = $(document.createElement('p'));
+      $submitText.addClass('text-muted').text('입력한 내용을 저장하시려면 아래 저장 버튼을 클릭하세요.');
+      
+      const $submitButton = $(document.createElement('button'));
+      $submitButton.attr('type', 'submit')
+                   .addClass('btn btn-primary btn-lg px-5')
+                   .html('<i class="fas fa-save me-2"></i>저장');
+      
+      $submitCardBody.append($submitTitle).append($submitText).append($submitButton);
+      $submitCard.append($submitCardBody);
+      $submitContainer.append($submitCard);
+      
+      fragment.appendChild($submitContainer[0]);
+      
+      // 한 번에 DOM에 추가
+      $container.append(fragment);
+      
+      // 폼 스텝 이동 로직 설정
+      setupFormSteps();
+      
+      // 툴팁 초기화
+      setTimeout(() => {
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.map(function (tooltipTriggerEl) {
+          return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+      }, 200);
+      
+      // 하위 그룹 2열 레이아웃 스타일 추가
+      if (!$('#subgroups-two-column-style').length) {
+        $('head').append(`
+          <style id="subgroups-two-column-style">
+            /* 하위 그룹 카드 스타일 */
+            .subgroups-row {
+              margin-right: -0.75rem;
+              margin-left: -0.75rem;
+            }
+            
+            .subgroups-row > .col-md-6 {
+              padding-right: 0.75rem;
+              padding-left: 0.75rem;
+            }
+            
+            .card {
+              box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+              border: none;
+            }
+            
+            .card-header {
+              background-color: #f8f9fa;
+              border-bottom: none;
+              padding: 0.75rem 1rem;
+            }
+            
+            /* 테이블 스타일 */
+            .table {
+              margin-bottom: 0;
+            }
+            
+            .table td {
+              padding: 0.75rem 1rem;
+              vertical-align: middle;
+            }
+            
+            .table tr:hover {
+              background-color: rgba(0, 123, 255, 0.05);
+            }
+            
+            /* 필드 아이콘 스타일 */
+            .field-icon {
+              display: inline-block;
+              width: 18px;
+              text-align: center;
+              color: #6c757d;
+            }
+            
+            /* 모바일 최적화 */
+            @media (max-width: 767.98px) {
+              .subgroups-row > .col-md-6 {
+                margin-bottom: 1rem;
+              }
+              
+              .table td {
+                padding: 0.5rem;
+              }
+              
+              .table td:first-child {
+                font-size: 0.9rem;
+              }
+            }
+          </style>
+        `);
+      }
+    }
+
+    /**
+     * 제품 저장 - 충돌 감지 추가
+     */
+     function saveProduct() {
+      try {
+        UI.showLoading();
+        
+        // 폼 데이터 수집
+        const headers = AppState.get('headers');
+        const productFormData = new Array(headers.length).fill("");
+        
+        // 각 필드 값 수집
+        headers.forEach((headerName, idx) => {
+          const fieldValue = getFieldValue(headerName);
+          
+          if (fieldValue !== undefined) {
+            if (document.getElementById(headerName)?.type === 'number' && fieldValue === '') {
+              productFormData[idx] = null;
+            } else {
+              productFormData[idx] = fieldValue;
+            }
+          }
+        });
+        
+        // 현재 상태 확인
+        const rowIndex = parseInt($('#product-row-index').val());
+        const currentSabangCode = $('#product-sabang-code').val();
+        const newSabangCode = getFieldValue('사방넷코드');
+        const lastModified = parseInt($('#last-modified-time').val() || '0');
+        
+        const isNewProduct = rowIndex === -1 && !currentSabangCode;
+        
+        // Promise 체인 최적화
+        let savePromise;
+        
+        if (isNewProduct) {
+          // 새 제품 추가
+          savePromise = ServerAPI.addProductData(productFormData);
+        } else if (currentSabangCode === newSabangCode) {
+          // 사방넷 코드가 변경되지 않은 경우 - 일반 업데이트
+          savePromise = ServerAPI.updateProductBySabangCode(currentSabangCode, productFormData, lastModified);
+        } else {
+          // 사방넷 코드가 변경된 경우
+          savePromise = ServerAPI.deleteProductBySabangCode(currentSabangCode)
+            .then(deleteResult => {
+              if (deleteResult.success) {
+                return ServerAPI.addProductData(productFormData);
+              } else {
+                throw new Error(deleteResult.message);
+              }
+            });
+        }
+        
+        // 충돌 감지 및 처리
+        savePromise
+          .then(result => {
+            if (result.success) {
+              // 성공 시 잠금 해제
+              if (window.unlockCurrentProduct) {
+                window.unlockCurrentProduct();
+              }
+              
+              // 창 닫기 경고 제거
+              window.removeEventListener('beforeunload', confirmExit);
+              
+              // 캐시 삭제 및 알림
+              AppState.cache.set('products', newSabangCode, null);
+              
+              const actionText = isNewProduct ? '추가' : '수정';
+              UI.showAlert('성공', result.message, 'success');
+              resetForm();
+              
+              // 데이터 다시 로드하고 뷰 업데이트
+              return DataManager.loadAllProductData();
+            } else if (result.conflictDetected) {
+              // 충돌 감지 - 사용자에게 선택지 제공
+              UI.hideLoading();
+              
+              // 충돌 해결 대화상자 표시
+              showConflictResolutionDialog(currentSabangCode, productFormData, result.serverTimestamp);
+              
+              // 여기서 프로세스 중단
+              throw new Error('conflict_detected');
+            } else {
+              UI.showAlert('오류', result.message, 'danger');
+              throw new Error(result.message);
+            }
+          })
+          .then(() => {
+            // 제품 목록 갱신 및 화면 전환
+            renderProductsTable();
+            showView('products');
+            UI.hideLoading();
+          })
+          .catch(error => {
+            if (error.message !== 'conflict_detected') {
+              console.error("제품 저장 오류:", error);
+              UI.showAlert('오류', `제품 저장에 실패했습니다: ${error.message || error}`, 'danger');
+              UI.hideLoading();
+            }
+          });
+          
+      } catch (error) {
+        console.error("제품 저장 오류:", error);
+        UI.showAlert('오류', '제품 저장 중 오류가 발생했습니다: ' + error, 'danger');
+        UI.hideLoading();
+      }
+    }
+    
+    /**
+     * 충돌 해결 대화상자 표시
+     * @param {string} sabangCode - 사방넷 코드
+     * @param {Array} productData - 저장하려던 제품 데이터
+     * @param {number} serverTimestamp - 서버의 타임스탬프
+     */
+    function showConflictResolutionDialog(sabangCode, productData, serverTimestamp) {
+      // 기존 모달 제거
+      $('#conflict-resolution-modal').remove();
+      
+      // 모달 생성
+      const $modal = $(`
+        <div class="modal fade" id="conflict-resolution-modal" tabindex="-1" aria-hidden="true">
+          <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+              <div class="modal-header bg-warning">
+                <h5 class="modal-title">
+                  <i class="fas fa-exclamation-triangle me-2"></i>데이터 충돌 감지
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body">
+                <div class="alert alert-warning">
+                  <p>다른 사용자가 이미 이 데품 정보를 수정했습니다.</p>
+                  <p>마지막 수정 시간: ${new Date(serverTimestamp).toLocaleString()}</p>
+                </div>
+                
+                <div class="d-flex justify-content-center mb-3">
+                  <div class="btn-group" role="group">
+                    <button type="button" class="btn btn-outline-primary" id="view-current-data-btn">
+                      <i class="fas fa-sync-alt me-2"></i>최신 데이터 확인
+                    </button>
+                    <button type="button" class="btn btn-outline-danger" id="force-save-btn">
+                      <i class="fas fa-save me-2"></i>강제 저장
+                    </button>
+                  </div>
+                </div>
+                
+                <p class="text-center text-muted">
+                  <small>
+                    <i class="fas fa-info-circle me-1"></i>
+                    최신 데이터를 확인하면 현재 편집 내용은 유지되고 나중에 두 버전을 비교할 수 있습니다.
+                    <br>강제 저장은 다른 사용자의 변경 사항을 덮어쓰므로 주의하세요.
+                  </small>
+                </p>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">취소</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `);
+      
+      // 모달을 DOM에 추가
+      $('body').append($modal);
+      
+      // 최신 데이터 확인 버튼 이벤트
+      $('#view-current-data-btn').on('click', function() {
+        // 모달 닫기
+        $('#conflict-resolution-modal').modal('hide');
+        
+        // 최신 데이터 로드 (잠금 유지)
+        UI.showLoading();
+        ServerAPI.getProductBySabangCode(sabangCode)
+          .then(result => {
+            if (result.success) {
+              // 현재 편집 중인 데이터 백업
+              AppState.set('editingData', productData);
+              
+              // 최신 데이터 로드 (기존 창에서 계속 편집)
+              const lastModified = result.lastModified;
+              $('#last-modified-time').val(lastModified || '');
+              
+              UI.showAlert('데이터 업데이트', '최신 데이터가 로드되었습니다. 현재 편집 중인 내용은 그대로 유지됩니다.', 'info');
+              
+              // 비교 도구 표시 (옵션)
+              showDataComparisonTool(result.product);
+            } else {
+              UI.showAlert('오류', result.message, 'danger');
+            }
+            UI.hideLoading();
+          })
+          .catch(error => {
+            console.error("최신 데이터 로드 오류:", error);
+            UI.showAlert('오류', '최신 데이터를 로드하는 중 오류가 발생했습니다.', 'danger');
+            UI.hideLoading();
+          });
+      });
+      
+      // 강제 저장 버튼 이벤트
+      $('#force-save-btn').on('click', function() {
+        // 확인 대화상자 표시
+        if (confirm('정말로 강제 저장하시겠습니까? 다른 사용자의 변경 사항이 덮어쓰기됩니다.')) {
+          // 모달 닫기
+          $('#conflict-resolution-modal').modal('hide');
+          
+          // 강제 저장 실행
+          UI.showLoading();
+          ServerAPI.updateProductBySabangCode(sabangCode, productData, null, true)
+            .then(result => {
+              if (result.success) {
+                // 성공 시 잠금 해제
+                if (window.unlockCurrentProduct) {
+                  window.unlockCurrentProduct();
+                }
+                
+                // 창 닫기 경고 제거
+                window.removeEventListener('beforeunload', confirmExit);
+                
+                // 캐시 삭제 및 알림
+                AppState.cache.set('products', sabangCode, null);
+                
+                UI.showAlert('강제 저장 완료', result.message, 'success');
+                resetForm();
+                
+                // 데이터 다시 로드하고 뷰 업데이트
+                return DataManager.loadAllProductData();
+              } else {
+                UI.showAlert('오류', result.message, 'danger');
+                throw new Error(result.message);
+              }
+            })
+            .then(() => {
+              // 제품 목록 갱신 및 화면 전환
+              renderProductsTable();
+              showView('products');
+              UI.hideLoading();
+            })
+            .catch(error => {
+              console.error("강제 저장 오류:", error);
+              UI.showAlert('오류', `강제 저장에 실패했습니다: ${error.message || error}`, 'danger');
+              UI.hideLoading();
+            });
+        }
+      });
+      
+      // 모달 표시
+      const modal = new bootstrap.Modal($modal[0]);
+      modal.show();
+    }
+    
+    /**
+     * 제품 수정 - 잠금 및 타임스탬프 적용
+     * @param {string} sabangCode - 사방넷 코드
+     * @param {number} rowIndex - 행 인덱스
+     */
+    function editProduct(sabangCode, rowIndex) {
+      try {
+        console.log("제품 수정 시작: 사방넷 코드 " + sabangCode + ", 행 인덱스 " + rowIndex);
+        
+        UI.showLoading();
+        
+        // 먼저 제품이 잠겨있는지 확인
+        ServerAPI.checkProductLock(sabangCode)
+          .then(lockResult => {
+            if (lockResult.success) {
+              // 제품 잠금 설정
+              return ServerAPI.lockProductForEditing(sabangCode);
+            } else {
+              // 이미 잠겨 있음 - 사용자에게 알림
+              UI.showAlert('편집 제한', lockResult.message, 'warning');
+              UI.hideLoading();
+              throw new Error('product_locked');
+            }
+          })
+          .then(lockingResult => {
+            if (lockingResult.success) {
+              // 편집 전 창 닫기 경고 설정
+              window.addEventListener('beforeunload', confirmExit);
+              
+              // 제품 정보 로드
+              return retrieveProductData(sabangCode, rowIndex);
+            } else {
+              UI.showAlert('잠금 실패', lockingResult.message, 'warning');
+              UI.hideLoading();
+              throw new Error('lock_failed');
+            }
+          })
+          .then(result => {
+            if (result && result.success) {
+              // 잠금 해제 함수 설정 (전역 스코프로)
+              window.unlockCurrentProduct = function() {
+                if (AppState.get('currentSabangCode')) {
+                  ServerAPI.unlockProduct(AppState.get('currentSabangCode'));
+                  window.removeEventListener('beforeunload', confirmExit);
+                }
+              };
+              
+              UI.hideLoading();
+            }
+          })
+          .catch(error => {
+            if (error.message !== 'product_locked' && error.message !== 'lock_failed') {
+              console.error("제품 수정 오류: " + error);
+              UI.showAlert('오류', '제품 데이터를 가져오는 중 오류가 발생했습니다: ' + error, 'danger');
+              UI.hideLoading();
+            }
+          });
+      } catch (error) {
+        console.error("제품 수정 오류: " + error);
+        UI.showAlert('오류', '제품 수정 중 오류가 발생했습니다: ' + error, 'danger');
+        UI.hideLoading();
+      }
+    }
+    
+    /**
+     * 창 닫기 전 경고
+     */
+    function confirmExit(e) {
+      // 표준 확인 메시지 (브라우저마다 다르게 표시됨)
+      const confirmMessage = '편집 중인 내용이 있습니다. 페이지를 떠나시겠습니까?';
+      e.returnValue = confirmMessage;
+      return confirmMessage;
+    }
+    
+    /**
+     * 제품 데이터 가져오기 - 타임스탬프 포함
+     */
+    function retrieveProductData(sabangCode, rowIndex) {
+      // 캐시된 데이터 확인
+      const cachedData = AppState.cache.get('products', sabangCode);
+      
+      if (typeof rowIndex === 'number' && rowIndex >= 0 && cachedData) {
+        // 캐시 데이터 사용
+        prepareEditForm(cachedData.dataRow, rowIndex, sabangCode, cachedData.product, cachedData.lastModified);
+        return Promise.resolve({success: true});
+      }
+      
+      // 서버에서 데이터 가져오기
+      return ServerAPI.getProductBySabangCode(sabangCode)
+        .then(result => {
+          if (result.success) {
+            // 결과 데이터 구조화 및 캐싱
+            const product = result.product;
+            const productRowIndex = result.rowIndex;
+            const dataRow = result.dataRow;
+            const lastModified = result.lastModified;
+            
+            AppState.cache.set('products', sabangCode, {
+              product,
+              dataRow, 
+              rowIndex: productRowIndex,
+              lastModified
+            });
+            
+            // 제품 폼 준비
+            prepareEditForm(dataRow, productRowIndex, sabangCode, product, lastModified);
+            return result;
+          } else {
+            console.error("제품 데이터 가져오기 실패:", result.message);
+            UI.showAlert('오류', result.message, 'danger');
+            throw new Error(result.message);
+          }
+        });
+    }
+
+    /**
+     * 수정 폼 준비 - 타임스탬프 추가
+     * @param {Array} row - 제품 데이터 행
+     * @param {number} rowIndex - 행 인덱스
+     * @param {string} sabangCode - 사방넷 코드
+     * @param {Object} product - 제품 데이터 객체
+     * @param {number} lastModified - 마지막 수정 시간
+     */
+     function prepareEditForm(row, rowIndex, sabangCode, product, lastModified) {
+      // 현재 상태 저장
+      AppState.set('currentRowIndex', rowIndex);
+      AppState.set('currentSabangCode', sabangCode);
+      AppState.set('lastModified', lastModified);
+      
+      $('#product-row-index').val(rowIndex);
+      $('#product-sabang-code').val(sabangCode);
+      
+      // 마지막 수정 시간 저장 (숨김 필드)
+      if (!$('#last-modified-time').length) {
+        $('#product-form').append('<input type="hidden" id="last-modified-time" name="last-modified-time">');
+      }
+      $('#last-modified-time').val(lastModified || '');
+      
+      // 페이지 전환 후 설정
+      showView('add-product');
+      
+      // DOM이 완전히 렌더링 될 때까지 기다림
+      setTimeout(() => {
+        // 모든 스텝 표시
+        $('.field-step').hide();
+        $('.field-step:first').show();
+        
+        // 제품 폼 초기화
+        $('#product-form')[0].reset();
+        
+        // 데이터 바인딩
+        const headers = AppState.get('headers');
+        headers.forEach(fieldName => {
+          if (product && fieldName in product) {
+            setFieldValue(fieldName, product[fieldName]);
+          }
+        });
+        
+        // 폼 변경 상태 초기화
+        AppState.set('formChanged', false);
+        console.log("제품 편집 폼 데이터 바인딩 완료");
+        
+        // 편집 중인 알림 표시
+        const formattedTime = new Date(lastModified).toLocaleString();
+        UI.showAlert('편집 모드', `현재 이 제품을 편집 중입니다. (마지막 수정: ${formattedTime})`, 'info');
+      }, 300);
+    }
+    
+    /**
+     * 제품 삭제 확인
+     * @param {string} sabangCode - 사방넷 코드
+     */
+    function confirmDeleteProduct(sabangCode) {
+      AppState.set('currentSabangCode', sabangCode);
+      
+      // 모달 표시
+      const modal = new bootstrap.Modal(document.getElementById('delete-confirm-modal'));
+      modal.show();
+    }
+    
+    /**
+     * 제품 삭제
+     * @param {string} sabangCode - 사방넷 코드
+     */
+    function deleteProduct(sabangCode) {
+      UI.showLoading();
+      
+      ServerAPI.deleteProductBySabangCode(sabangCode)
+        .then(result => {
+          if (result.success) {
+            UI.showAlert('성공', result.message, 'success');
+            
+            // 캐시에서 제품 제거
+            AppState.cache.set('products', sabangCode, null);
+            
+            // 데이터 다시 로드하고 뷰 업데이트
+            return DataManager.loadAllProductData();
+          } else {
+            UI.showAlert('오류', result.message, 'danger');
+            throw new Error(result.message);
+          }
+        })
+        .then(() => {
+          renderProductsTable();
+          UI.hideLoading();
+        })
+        .catch(error => {
+          UI.showAlert('오류', error, 'danger');
+          UI.hideLoading();
+        });
+    }
+
+    /**
+     * 폼 리셋 - 잠금 해제 추가
+     */
+     function resetForm() {
+      const form = document.getElementById(DOM.forms.product);
+      if (form) {
+        form.reset();
+      }
+      
+      // 애플리케이션 상태 초기화
+      const currentSabangCode = AppState.get('currentSabangCode');
+      
+      // 잠금 해제
+      if (currentSabangCode) {
+        ServerAPI.unlockProduct(currentSabangCode);
+      }
+      
+      AppState.set('currentRowIndex', -1);
+      AppState.set('currentSabangCode', '');
+      AppState.set('lastModified', null);
+      AppState.set('formChanged', false);
+      
+      // 창 닫기 경고 제거
+      window.removeEventListener('beforeunload', confirmExit);
+      
+      // 숨겨진 필드 초기화
+      $('#product-row-index').val('-1');
+      $('#product-sabang-code').val('');
+      $('#last-modified-time').val('');
+      
+      // 타이머로 감싸서 DOM이 완전히 렌더링된 후 실행되도록 함
+      setTimeout(() => {
+        // 모든 스텝 초기화
+        $('.field-step').hide();
+        $('.field-step:first-of-type').show();
+        
+        // 스텝 네비게이션 초기화
+        $('.stepper-item').removeClass('active completed');
+        $('.stepper-item:first-of-type').addClass('active');
+        
+        // 버튼 상태 초기화
+        $('.btn-prev').prop('disabled', true);
+        $('.btn-next').html('다음<i class="fas fa-chevron-right ms-2"></i>')
+                       .addClass('btn-primary').removeClass('btn-success');
+        
+        // 네비게이션 버튼 표시, 제출 버튼 컨테이너 숨김
+        $('.nav-buttons').show();
+        $('.submit-container').hide();
+      }, 100);
+      
+      console.log("폼 리셋 완료");
+    }
+
+    /**
+     * 상세 정보 하위 그룹 섹션 생성 - 최적화 버전
+     * @param {string} subGroupName - 하위 그룹 이름
+     * @param {Array} fields - 필드 배열
+     * @returns {jQuery} 하위 그룹 섹션 요소
+     */
+     function createDetailSubGroupSection(subGroupName, fields) {
+      // 필드가 없으면 빈 요소 반환
+      if (!fields || fields.length === 0) {
+        return $('<div>');
+      }
+      
+      // 현재 뷰 타입 확인
+      const viewType = DetailViewSettings.viewType;
+      
+      // 하위 그룹 카드 생성
+      const $subGroup = $(document.createElement('div'));
+      $subGroup.addClass('card mb-4 border-0 shadow-sm');
+      
+      // 카드 헤더
+      const $header = $(document.createElement('div'));
+      $header.addClass('card-header bg-light');
+      
+      const $title = $(document.createElement('h6'));
+      $title.addClass('mb-0').text(subGroupName);
+      
+      $header.append($title);
+      
+      // 카드 바디
+      const $body = $(document.createElement('div'));
+      $body.addClass('card-body');
+      
+      if (viewType === 'card') {
+        // 카드 형식 (기존 방식) - 2열 그리드
+        const $gridContainer = $(document.createElement('div'));
+        $gridContainer.addClass('row');
+        
+        // 각 필드를 2열로 배치
+        fields.forEach(field => {
+          // 필드 표시할 열 생성
+          const $fieldCol = $(document.createElement('div'));
+          $fieldCol.addClass('col-md-6 mb-2');
+          
+          // 필드 카드 (미니 카드)
+          const $fieldCard = $(document.createElement('div'));
+          $fieldCard.addClass('field-item p-2 border rounded');
+          
+          // 라벨 영역
+          const $labelArea = $(document.createElement('div'));
+          $labelArea.addClass('field-label mb-1 text-muted small d-flex align-items-center');
+          
+          // 필드 아이콘
+          const $icon = $(document.createElement('i'));
+          $icon.addClass(`fas ${field.typeIcon} me-1`);
+          
+          $labelArea.append($icon).append(field.label);
+          
+          // 값 영역
+          const $valueArea = $(document.createElement('div'));
+          $valueArea.addClass('field-value');
+          
+          // 필드 타입에 따른 값 표시 포맷
+          let displayValue = getFormattedValue(field);
+          $valueArea.html(displayValue);
+          
+          // 요소 조립
+          $fieldCard.append($labelArea).append($valueArea);
+          $fieldCol.append($fieldCard);
+          $gridContainer.append($fieldCol);
+        });
+        
+        $body.append($gridContainer);
+      } else {
+        // 리스트 형식 (테이블 구조)
+        const $tableContainer = $(document.createElement('div'));
+        $tableContainer.addClass('table-responsive');
+        
+        const $table = $(document.createElement('table'));
+        $table.addClass('table table-hover table-sm list-view-table');
+        
+        const $tableBody = $(document.createElement('tbody'));
+        
+        // 각 필드를 행으로 추가
+        fields.forEach(field => {
+          const $row = $(document.createElement('tr'));
+          
+          // 라벨 셀
+          const $labelCell = $(document.createElement('td'));
+          $labelCell.addClass('field-label-cell');
+          $labelCell.css('width', '30%');
+          
+          // 필드 아이콘
+          const $icon = $(document.createElement('i'));
+          $icon.addClass(`fas ${field.typeIcon} me-1`);
+          
+          $labelCell.append($icon).append(field.label);
+          
+          // 값 셀
+          const $valueCell = $(document.createElement('td'));
+          $valueCell.addClass('field-value-cell');
+          
+          // 필드 타입에 따른 값 표시 포맷
+          let displayValue = getFormattedValue(field);
+          $valueCell.html(displayValue);
+          
+          // 행 조립
+          $row.append($labelCell).append($valueCell);
+          $tableBody.append($row);
+        });
+        
+        $table.append($tableBody);
+        $tableContainer.append($table);
+        $body.append($tableContainer);
+      }
+      
+      $subGroup.append($header).append($body);
+      
+      // 스타일 추가
+      if (!$('#detail-view-styles').length) {
+        $('head').append(`
+          <style id="detail-view-styles">
+            /* 카드 뷰 스타일 */
+            .field-item {
+              background-color: #ffffff;
+              transition: all 0.2s;
+              height: 100%;
+            }
+            
+            .field-item:hover {
+              background-color: rgba(0, 123, 255, 0.05);
+            }
+            
+            .field-label {
+              font-size: 0.8rem;
+              color: #6c757d;
+            }
+            
+            .field-value {
+              font-weight: 500;
+            }
+            
+            .field-value-empty {
+              font-style: italic;
+              color: #adb5bd;
+            }
+            
+            /* 리스트 뷰 스타일 */
+            .list-view-table .field-label-cell {
+              font-size: 0.9rem;
+              color: #495057;
+              font-weight: 500;
+              background-color: #f8f9fa;
+            }
+            
+            .list-view-table .field-value-cell {
+              font-weight: 400;
+            }
+            
+            /* 뷰 전환 버튼 스타일 */
+            .view-toggle-buttons {
+              margin-right: 10px;
+            }
+            
+            /* 다크 모드 대응 */
+            body.dark-mode .field-item {
+              background-color: #343a40;
+            }
+            
+            body.dark-mode .field-item:hover {
+              background-color: rgba(255, 255, 255, 0.1);
+            }
+            
+            body.dark-mode .list-view-table .field-label-cell {
+              background-color: #2c3034;
+              color: #e9ecef;
+            }
+          </style>
+        `);
+      }
+      
+      return $subGroup;
+    }
+
+    /**
+     * 제품 변경 히스토리 로드
+     * @param {string} sabangCode - 사방넷 코드
+     */
+     function loadProductHistory(sabangCode) {
+      console.log('==== 히스토리 로드 함수 호출됨 ====', new Date().toISOString());
+      console.log('요청된 사방넷 코드:', sabangCode);
+      
+      const $container = $('#product-history-container');
+      
+      // 이미 로딩 중이면 중복 요청 방지
+      if ($container.data('loading') === true) {
+        console.log('이미 로딩 중 - 요청 무시됨');
+        return;
+      }
+      
+      // 로딩 상태 표시
+      console.log('로딩 상태 설정: true');
+      $container.data('loading', true);
+      
+      // 컨테이너가 비어있는지 확인하고 로딩 인디케이터 추가
+      if ($container.children().length === 0 || !$container.find('.spinner-border').length) {
+        $container.html('<div class="text-center my-4"><div class="spinner-border text-primary" role="status"><span class="visually-hidden">로딩 중...</span></div><p class="mt-2">히스토리 데이터를 불러오는 중입니다...</p></div>');
+      }
+      
+      // 히스토리 데이터 가져오기
+      console.log('서버 API 호출 시작: getProductChangeHistory');
+      ServerAPI.getProductChangeHistory(sabangCode)
+        .then(result => {
+          console.log('API 응답 수신:', result);
+          // 로딩 상태 해제
+          $container.data('loading', false);
+          console.log('로딩 상태 설정: false');
+          
+          if (result.success) {
+            console.log('히스토리 렌더링 시작, 데이터 길이:', result.history ? result.history.length : 0);
+            renderProductHistory(result.history);
+          } else {
+            console.log('API 오류 응답:', result.message);
+            $container.html(`<div class="alert alert-warning">${result.message}</div>`);
+          }
+        })
+        .catch(error => {
+          console.error('API 호출 오류:', error);
+          // 오류 발생 시에도 로딩 상태 해제
+          $container.data('loading', false);
+          console.log('로딩 상태 설정: false (오류 발생)');
+          $container.html(`<div class="alert alert-danger">히스토리 데이터를 불러오는 중 오류가 발생했습니다: ${error}</div>`);
+        });
+    }
+
+    /**
+     * 제품 변경 히스토리 렌더링
+     * @param {Array} history - 히스토리 데이터
+     */
+     function renderProductHistory(history) {
+      const $container = $('#product-history-container');
+      
+      // 데이터가 없는 경우
+      if (!history || history.length === 0) {
+        $container.html('<div class="alert alert-info">변경 히스토리가 없습니다.</div>');
+        return;
+      }
+      
+      // 타임라인 컨테이너 생성
+      const $timeline = $(document.createElement('div'));
+      $timeline.addClass('history-timeline');
+      
+      // CSS 스타일 추가
+      if (!$('#history-timeline-style').length) {
+        $('head').append(`
+          <style id="history-timeline-style">
+            .history-timeline {
+              position: relative;
+              margin: 0 0 30px 10px;
+              padding: 0;
+              list-style: none;
+            }
+            
+            .history-timeline:before {
+              content: '';
+              position: absolute;
+              top: 0;
+              bottom: 0;
+              left: 0;
+              width: 3px;
+              background: #e9ecef;
+              border-radius: 3px;
+            }
+            
+            .timeline-item {
+              position: relative;
+              padding-left: 30px;
+              margin-bottom: 25px;
+            }
+            
+            .timeline-item:before {
+              content: '';
+              position: absolute;
+              top: 0;
+              left: -8px;
+              width: 18px;
+              height: 18px;
+              border-radius: 50%;
+              background: #fff;
+              border: 3px solid #007bff;
+            }
+            
+            .timeline-item.add-event:before {
+              border-color: #28a745;
+            }
+            
+            .timeline-item.delete-event:before {
+              border-color: #dc3545;
+            }
+            
+            .timeline-item.update-event:before {
+              border-color: #fd7e14;
+            }
+            
+            .timeline-date {
+              font-size: 0.85rem;
+              color: #6c757d;
+              margin-bottom: 5px;
+            }
+            
+            .timeline-content {
+              background: #f8f9fa;
+              padding: 15px;
+              border-radius: 5px;
+              box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            }
+            
+            .timeline-title {
+              font-weight: 600;
+              margin-bottom: 10px;
+              color: #495057;
+            }
+            
+            .change-badge {
+              display: inline-block;
+              padding: 3px 8px;
+              font-size: 0.75rem;
+              font-weight: 500;
+              border-radius: 10px;
+              margin-right: 5px;
+            }
+            
+            .change-add {
+              background-color: rgba(40, 167, 69, 0.15);
+              color: #28a745;
+            }
+            
+            .change-delete {
+              background-color: rgba(220, 53, 69, 0.15);
+              color: #dc3545;
+            }
+            
+            .change-update {
+              background-color: rgba(253, 126, 20, 0.15);
+              color: #fd7e14;
+            }
+            
+            .change-table {
+              width: 100%;
+              margin-top: 10px;
+              font-size: 0.9rem;
+            }
+            
+            .change-table th {
+              background-color: #e9ecef;
+              padding: 8px 10px;
+              text-align: left;
+            }
+            
+            .change-table td {
+              padding: 8px 10px;
+              border-bottom: 1px solid #e9ecef;
+            }
+            
+            .value-changed {
+              background-color: rgba(253, 237, 200, 0.5);
+            }
+            
+            /* 다크 모드 지원 */
+            body.dark-mode .timeline-content {
+              background-color: #343a40;
+              color: #f8f9fa;
+            }
+            
+            body.dark-mode .timeline-title {
+              color: #e9ecef;
+            }
+            
+            body.dark-mode .change-table th {
+              background-color: #2c3136;
+            }
+            
+            body.dark-mode .change-table td {
+              border-color: #495057;
+            }
+            
+            body.dark-mode .value-changed {
+              background-color: rgba(255, 193, 7, 0.2);
+            }
+            
+            body.dark-mode .history-timeline:before {
+              background: #495057;
+            }
+          </style>
+        `);
+      }
+      
+      // 날짜별로 히스토리 그룹화
+      const historyByDate = {};
+      
+      history.forEach(item => {
+        const date = new Date(item.Timestamp);
+        const dateStr = date.toLocaleDateString();
+        
+        if (!historyByDate[dateStr]) {
+          historyByDate[dateStr] = [];
+        }
+        
+        historyByDate[dateStr].push(item);
+      });
+      
+      // 날짜 정렬 (최신 날짜 먼저)
+      const sortedDates = Object.keys(historyByDate).sort((a, b) => {
+        return new Date(b) - new Date(a);
+      });
+      
+      // 각 날짜별 타임라인 항목 생성
+      sortedDates.forEach(dateStr => {
+        const dateItems = historyByDate[dateStr];
+        
+        // 같은 날짜의 항목들을 시간 순으로 정렬
+        dateItems.sort((a, b) => {
+          return new Date(b.Timestamp) - new Date(a.Timestamp);
+        });
+        
+        // 같은 날짜/시간/사용자의 변경 사항 그룹화
+        const groupedItems = [];
+        let currentGroup = null;
+        
+        dateItems.forEach(item => {
+          const timestamp = item.Timestamp;
+          const time = new Date(timestamp).toLocaleTimeString();
+          
+          if (!currentGroup || 
+              currentGroup.timestamp !== timestamp || 
+              currentGroup.user !== item.User ||
+              currentGroup.action !== item.Action) {
+            currentGroup = {
+              timestamp: timestamp,
+              time: time,
+              date: dateStr,
+              user: item.User,
+              action: item.Action,
+              changes: []
+            };
+            groupedItems.push(currentGroup);
+          }
+          
+          currentGroup.changes.push({
+            field: item.Field,
+            oldValue: item.OldValue,
+            newValue: item.NewValue
+          });
+        });
+        
+        // 그룹화된 항목들을 타임라인에 추가
+        groupedItems.forEach(group => {
+          // 액션에 따른 클래스 결정
+          let actionClass = 'update-event';
+          let actionBadge = 'change-update';
+          let actionText = '수정';
+          
+          if (group.action === 'add') {
+            actionClass = 'add-event';
+            actionBadge = 'change-add';
+            actionText = '추가';
+          } else if (group.action === 'delete') {
+            actionClass = 'delete-event';
+            actionBadge = 'change-delete';
+            actionText = '삭제';
+          }
+          
+          // 타임라인 항목 생성
+          const $item = $(document.createElement('div'));
+          $item.addClass(`timeline-item ${actionClass}`);
+          
+          // 날짜 및 시간
+          const $date = $(document.createElement('div'));
+          $date.addClass('timeline-date');
+          $date.text(`${group.date} ${group.time}`);
+          
+          // 타임라인 콘텐츠
+          const $content = $(document.createElement('div'));
+          $content.addClass('timeline-content');
+          
+          // 제목
+          const $title = $(document.createElement('div'));
+          $title.addClass('timeline-title');
+          
+          // 액션 배지
+          const $badge = $(document.createElement('span'));
+          $badge.addClass(`change-badge ${actionBadge}`).text(actionText);
+          
+          // 사용자 정보
+          const $user = $(document.createElement('span'));
+          $user.text(`${group.user}님이 `);
+          
+          // 아이콘 및 설명
+          let actionDescription = '';
+          if (group.action === 'add') {
+            actionDescription = '새 제품을 추가했습니다.';
+          } else if (group.action === 'delete') {
+            actionDescription = '제품을 삭제했습니다.';
+          } else {
+            actionDescription = '제품 정보를 변경했습니다.';
+          }
+          
+          $title.append($badge, $user, actionDescription);
+          
+          // 변경 내용 테이블
+          const $changeTable = $(document.createElement('table'));
+          $changeTable.addClass('change-table');
+          
+          const $tableHead = $(document.createElement('thead'));
+          const $headerRow = $(document.createElement('tr'));
+          
+          $headerRow.append(
+            $('<th width="30%">').text('필드'),
+            $('<th width="35%">').text('이전 값'),
+            $('<th width="35%">').text('새 값')
+          );
+          
+          $tableHead.append($headerRow);
+          $changeTable.append($tableHead);
+          
+          const $tableBody = $(document.createElement('tbody'));
+          
+          // 필드 정의 캐시 사용
+          const fieldDefinitions = AppState.get('fieldDefinitions');
+          
+          // 변경 내용 행 추가
+          group.changes.forEach(change => {
+            const $changeRow = $(document.createElement('tr'));
+            
+            // 필드 이름 (라벨로 변환)
+            let fieldLabel = change.field;
+            if (fieldDefinitions) {
+              const fieldDef = fieldDefinitions.find(f => f.field === change.field);
+              if (fieldDef) {
+                fieldLabel = fieldDef.label;
+              }
+            }
+            
+            $changeRow.append($('<td>').text(fieldLabel));
+            
+            // 이전 값과 새 값
+            const $oldCell = $('<td>').text(change.oldValue || '-');
+            const $newCell = $('<td>').text(change.newValue || '-');
+            
+            // 값이 변경된 경우 하이라이트
+            if (change.oldValue !== change.newValue) {
+              $oldCell.addClass('value-changed');
+              $newCell.addClass('value-changed');
+            }
+            
+            $changeRow.append($oldCell, $newCell);
+            $tableBody.append($changeRow);
+          });
+          
+          $changeTable.append($tableBody);
+          
+          // 변경 내용이 많은 경우 접기/펼치기 기능 추가
+          if (group.changes.length > 5) {
+            const $collapseButton = $(document.createElement('button'));
+            $collapseButton.addClass('btn btn-sm btn-outline-secondary mt-2')
+                          .attr('type', 'button')
+                          .attr('data-bs-toggle', 'collapse')
+                          .attr('data-bs-target', `#changes-${group.timestamp.replace(/[^a-zA-Z0-9]/g, '')}`)
+                          .html('<i class="fas fa-chevron-down me-1"></i> 전체 변경 내용 보기');
+            
+            const $collapseDiv = $(document.createElement('div'));
+            $collapseDiv.addClass('collapse')
+                       .attr('id', `changes-${group.timestamp.replace(/[^a-zA-Z0-9]/g, '')}`);
+            
+            $collapseDiv.append($changeTable);
+            $content.append($title, $collapseButton, $collapseDiv);
+          } else {
+            $content.append($title, $changeTable);
+          }
+          
+          $item.append($date, $content);
+          $timeline.append($item);
+        });
+      });
+      
+      // 타임라인을 컨테이너에 추가
+      $container.empty().append($timeline);
+    }
+
+</script>
